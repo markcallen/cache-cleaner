@@ -26,6 +26,21 @@ Use `--details` to see per-directory breakdowns:
                                        #   - directory2 — size, items, date
 ```
 
+## Command-Line Arguments
+
+| Flag | Description |
+|------|-------------|
+| `--config` | Path to YAML config file (default: `~/.config/mac-cache-cleaner/config.yaml`) |
+| `--clean` | Run safe CLI clean commands (default: dry-run) |
+| `--targets` | Comma-separated targets to scan/clean (default: `all`) |
+| `--details` | Show detailed per-directory information |
+| `--json` | Output results as JSON |
+| `--init` | Write a starter config to --config and exit |
+| `--force` | Force overwrite existing config (use with --init) |
+| `--list-targets` | List all available targets and exit |
+| `--check-tools` | Check if required tools are installed and exit |
+| `--docker-prune` | Add docker prune commands at runtime |
+
 ## Quick start
 ```bash
 make build
@@ -35,26 +50,86 @@ make build
 ./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --clean
 ./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --targets brew,pnpm --clean
 ./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --check-tools  # check if tools are installed
+./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --list-targets  # list all available targets
+./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json  # output as JSON
 ```
 
-## Tool Requirements
+## Configuration
+
+### Config File Structure
+
+```yaml
+version: 1  # Config version
+
+options:
+  dockerPruneByDefault: false  # Automatically add docker prune commands
+
+targets:
+  - name: docker              # Target identifier
+    enabled: true             # Enable/disable this target
+    notes: "Docker caches and images (safe CLI prune only)"  # Optional description
+    
+    # Paths to measure for size (supports glob patterns and ~ expansion)
+    paths:
+      - "~/Library/Caches/docker/*"
+      - "~/Library/Caches/buildx/*"
+      - "$(brew --cache)/*"  # Dynamic brew cache path
+    
+    # Commands to run when --clean is used
+    cmds:
+      - ["docker", "builder", "prune", "-af"]
+      - ["docker", "system", "prune", "-af", "--volumes"]
+    
+    # Required tools for this target
+    tools:
+      - name: docker                                    # Tool name to check in PATH
+        version: "24.0"                                 # Optional: minimum version requirement
+        installCmd: "brew install --cask docker"       # Installation command
+        installNotes: "Installation notes (optional)"  # Optional: installation guidance
+        checkPath: "~/.docker/config"                   # Optional: specific file path to check instead of PATH
+```
+
+### Tool Requirements
 
 The config allows you to specify required tools for each target. Before running commands, the app checks if these tools are installed and in your PATH.
 
-Example:
+**Tool Configuration Fields:**
+- `name`: The tool executable name to check in PATH
+- `version`: (Optional) Minimum required version
+- `installCmd`: Command to install the tool if missing
+- `installNotes`: (Optional) Additional installation guidance
+- `checkPath`: (Optional) Specific file path to check instead of using PATH
+
+**Example with multiple tools:**
 ```yaml
-targets:
-  - name: docker
+  - name: rust
     enabled: true
+    paths:
+      - "~/.cargo/registry/*"
+      - "~/.cargo/git/*"
     cmds:
-      - - docker
-        - system
-        - prune
+      - ["cargo", "cache", "-a"]
     tools:
-      - name: docker
-        version: "24.0"      # optional: minimum version
-        installCmd: "brew install --cask docker"
-        installNotes: "Installation notes (optional)"
+      - name: cargo
+        installCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+      - name: cargo-cache
+        installCmd: "cargo install cargo-cache"
+        installNotes: "Install this after cargo is installed"
+```
+
+**Example with custom path check:**
+```yaml
+  - name: node-versions
+    enabled: true
+    paths:
+      - "~/.nvm/versions/node/*"
+    cmds:
+      - ["nvm", "cache", "clear"]
+    tools:
+      - name: nvm
+        installCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"
+        installNotes: "After installation, restart your terminal"
+        checkPath: "~/.nvm/nvm.sh"  # Check for specific file instead of PATH
 ```
 
 When a tool is missing, the app will:
