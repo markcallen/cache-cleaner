@@ -536,6 +536,7 @@ func main() {
 	// FIRST SCAN - before cleanup
 	beforeTotals := make(map[string]uint64)
 	for _, t := range targets {
+		fmt.Printf("Scanning [%s]...", t.Name)
 		var sum int64
 		var expanded []string
 		for _, p := range t.Paths {
@@ -554,6 +555,7 @@ func main() {
 			sum += f.SizeBytes
 		}
 		beforeTotals[t.Name] = uint64(sum)
+		fmt.Printf(" done (%s)\n", human(sum))
 	}
 
 	// output initial results
@@ -667,6 +669,7 @@ func main() {
 		fmt.Println()
 		
 		for _, t := range targets {
+			fmt.Printf("Scanning [%s]...", t.Name)
 			var sum int64
 			var expanded []string
 			for _, p := range t.Paths {
@@ -685,6 +688,11 @@ func main() {
 			}
 			afterTotals[t.Name] = uint64(sum)
 			freedSpace[t.Name] = int64(beforeTotals[t.Name]) - int64(afterTotals[t.Name])
+			fmt.Printf(" done (%s", human(sum))
+			if freedSpace[t.Name] > 0 {
+				fmt.Printf(", freed %s", human(freedSpace[t.Name]))
+			}
+			fmt.Println(")")
 		}
 
 		// Show after scan results with freed space
