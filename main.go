@@ -216,7 +216,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "build-tools", Enabled: true, Notes: "Compiler and build caches (ccache, bazel, Xcode)", Paths: []string{"~/.ccache/*", "~/.bazel-cache/*", "~/.cache/bazel/*"}, Cmds: [][]string{{"ccache", "-C"}}, Tools: []Tool{{Name: "ccache", InstallCmd: "brew install ccache"}}},
 			{Name: "chrome", Enabled: true, Notes: "Chrome cache (informational only)", Paths: []string{"~/Library/Caches/Google/Chrome/*", "~/Library/Application Support/Google/Chrome/*/Cache/*"}, Cmds: [][]string{}},
 			{Name: "macos", Enabled: false, Notes: "macOS system caches (advanced users only)", Paths: []string{"~/Library/Caches/*", "~/Library/Containers/com.apple.QuickLook.thumbnailcache/*"}, Cmds: [][]string{{"qlmanage", "-r", "cache"}}},
-			{Name: "flutter", Enabled: true, Notes: "Flutter and Dart caches (pub, SDK, and analysis artifacts)", Paths: []string{"~/.pub-cache/*", "~/.dartServer/*", "~/Library/Developer/flutter/*", "~/Library/Caches/flutter/*"}, Cmds: [][]string{{"flutter", "pub", "cache", "clean"}}, Tools: []Tool{{Name: "flutter", InstallCmd: "Install Flutter manually", InstallNotes: "For installation instructions, visit: https://docs.flutter.dev/install/manual"}}},
+			{Name: "flutter", Enabled: true, Notes: "Flutter and Dart caches (pub, SDK, and analysis artifacts)", Paths: []string{"~/.pub-cache/*", "~/.dartServer/*", "~/Library/Developer/flutter/*", "~/Library/Caches/flutter/*"}, Cmds: [][]string{{"flutter", "pub", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "flutter", InstallCmd: "Install Flutter manually", InstallNotes: "For installation instructions, visit: https://docs.flutter.dev/install/manual"}}},
 			{Name: "android", Enabled: true, Notes: "Android SDK and emulator caches", Paths: []string{"~/.android/cache/*", "~/.android/avd/*", "~/Library/Android/sdk/*"}, Cmds: [][]string{{"sdkmanager", "--update"}}},
 			{Name: "android-studio", Enabled: true, Notes: "Android Studio IDE caches, logs, and indexes", Paths: []string{"~/Library/Caches/Google/AndroidStudio*/*", "~/Library/Logs/Google/AndroidStudio*/*", "~/Library/Application Support/Google/AndroidStudio*/system/caches/*", "~/Library/Application Support/Google/AndroidStudio*/system/index/*"}, Cmds: [][]string{}},
 		},
@@ -322,7 +322,26 @@ func runCmd(cmd []string) CmdResult {
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
+	
+	// Create a pipe to write to stdin
+	stdin, err := c.StdinPipe()
+	if err != nil {
+		res.Error = fmt.Sprintf("stdin pipe error: %v", err)
+		return res
+	}
+	
+	// Start the command
+	if err := c.Start(); err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	
+	// Send 'y' to confirm any interactive prompts
+	_, _ = stdin.Write([]byte("y\n"))
+	stdin.Close()
+	
+	// Wait for the command to complete
+	if err := c.Wait(); err != nil {
 		res.Error = err.Error()
 	}
 	return res
@@ -514,7 +533,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	// measure sizes
+	// FIRST SCAN - before cleanup
+	beforeTotals := make(map[string]uint64)
 	for _, t := range targets {
 		var sum int64
 		var expanded []string
@@ -526,31 +546,39 @@ func main() {
 			}
 			expanded = append(expanded, matches...)
 		}
-		if len(expanded) == 0 {
-			rep.Findings[t.Name] = []Finding{{Path: "(none)"}}
-		}
 		for _, p := range expanded {
 			f, err := inspectPath(p)
 			if err != nil {
 				f.Err = err.Error()
 			}
-			rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
 			sum += f.SizeBytes
 		}
-		rep.Totals[t.Name] = uint64(sum)
+		beforeTotals[t.Name] = uint64(sum)
 	}
 
-	// check tools and run commands (if clean)
+	// output initial results
+	if *flagJSON {
+		// For JSON mode, store the before totals in the report
+		rep.Totals = beforeTotals
+		b, _ := json.MarshalIndent(rep, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+
+	fmt.Printf("Config: %s\n", *flagConfig)
+	fmt.Printf("Scan: %s\n", rep.When.Format(time.RFC3339))
+	fmt.Printf("Dry-run: %v\n\n", rep.DryRun)
+
+	// Check tools and prepare commands (but don't run yet unless --clean)
+	// This populates rep.Commands so we can display them in the output
 	for _, t := range targets {
 		// Check tool requirements first - create a map of tool name -> installed status
-		toolStatus := make(map[string]bool) // Track which tools are installed
-		missingTools := make(map[string]bool) // Track which tools are missing
+		toolStatus := make(map[string]bool)
 		if len(t.Tools) > 0 {
 			for _, tool := range t.Tools {
 				installed, _, err := checkTool(tool)
 				toolStatus[tool.Name] = installed
 				if !installed {
-					missingTools[tool.Name] = true
 					installCmd := getInstallCommand(tool)
 					errMsg := fmt.Sprintf("Required tool '%s' is not installed or not in PATH", tool.Name)
 					if err != nil {
@@ -568,73 +596,44 @@ func main() {
 		if len(t.Cmds) == 0 {
 			continue
 		}
-		if !*flagClean {
-			// record would-run
-			for _, c := range t.Cmds {
-				found := false
-				errorMsg := ""
-				
-				if len(c) > 0 {
-					// Check if this is a known tool in our tools list
-					if installed, ok := toolStatus[c[0]]; ok {
-						// Use the tool's installed status
-						found = installed
-						if !installed {
-							errorMsg = fmt.Sprintf("tool '%s' not installed", c[0])
-						}
-					} else {
-						// Not a tool in our list, just check PATH
-						_, err := exec.LookPath(c[0])
-						found = err == nil
-						if !found {
-							errorMsg = "not found"
-						}
+		
+		// Populate commands with their found status
+		for _, c := range t.Cmds {
+			found := false
+			errorMsg := ""
+			
+			if len(c) > 0 {
+				if installed, ok := toolStatus[c[0]]; ok {
+					found = installed
+					if !installed {
+						errorMsg = fmt.Sprintf("tool '%s' not installed", c[0])
+					}
+				} else {
+					_, err := exec.LookPath(c[0])
+					found = err == nil
+					if !found {
+						errorMsg = "not found"
 					}
 				}
-				
-				rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
-					Cmd:   c,
-					Found: found,
-					Error: errorMsg,
-				})
 			}
-			continue
-		}
-		for _, c := range t.Cmds {
-			rep.Commands[t.Name] = append(rep.Commands[t.Name], runCmd(c))
+			
+			rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
+				Cmd:   c,
+				Found: found,
+				Error: errorMsg,
+			})
 		}
 	}
 
-	// output
-	if *flagJSON {
-		b, _ := json.MarshalIndent(rep, "", "  ")
-		fmt.Println(string(b))
-		return
-	}
-
-	fmt.Printf("Config: %s\nScan: %s\nDry-run: %v\n\n", *flagConfig, rep.When.Format(time.RFC3339), rep.DryRun)
-	// sort targets by size desc
+	// Show initial scan results
 	type kv struct{ k string; v uint64 }
 	var list []kv
-	for k, v := range rep.Totals {
+	for k, v := range beforeTotals {
 		list = append(list, kv{k, v})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
 	for _, e := range list {
 		fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
-		if *flagDetails {
-			for _, f := range rep.Findings[e.k] {
-				if f.Path == "(none)" {
-					fmt.Println("  - no paths found")
-					continue
-				}
-				status := ""
-				if f.Err != "" {
-					status = " (" + f.Err + ")"
-				}
-				fmt.Printf("  - %s — %s, %d items, latest %s%s\n", f.Path, human(f.SizeBytes), f.Items, f.ModMax.Format(time.RFC3339), status)
-			}
-		}
 		if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
 			fmt.Println("  Commands:")
 			for _, c := range cr {
@@ -650,6 +649,73 @@ func main() {
 			}
 		}
 		fmt.Println()
+	}
+
+	// Now run commands if --clean is specified
+	if *flagClean {
+		for _, t := range targets {
+			for _, c := range t.Cmds {
+				runCmd(c)
+			}
+		}
+
+		// SECOND SCAN - after cleanup
+		afterTotals := make(map[string]uint64)
+		freedSpace := make(map[string]int64)
+		fmt.Println()
+		fmt.Println("Re-scanning after cleanup...")
+		fmt.Println()
+		
+		for _, t := range targets {
+			var sum int64
+			var expanded []string
+			for _, p := range t.Paths {
+				matches, err := expandGlobs(p)
+				if err != nil {
+					continue
+				}
+				expanded = append(expanded, matches...)
+			}
+			for _, p := range expanded {
+				f, err := inspectPath(p)
+				if err != nil {
+					f.Err = err.Error()
+				}
+				sum += f.SizeBytes
+			}
+			afterTotals[t.Name] = uint64(sum)
+			freedSpace[t.Name] = int64(beforeTotals[t.Name]) - int64(afterTotals[t.Name])
+		}
+
+		// Show after scan results with freed space
+		type kv2 struct{ k string; v uint64 }
+		var list2 []kv2
+		for k, v := range afterTotals {
+			list2 = append(list2, kv2{k, v})
+		}
+		sort.Slice(list2, func(i, j int) bool { return list2[i].v > list2[j].v })
+		fmt.Println("After cleanup:")
+		fmt.Println()
+		for _, e := range list2 {
+			freed := freedSpace[e.k]
+			fmt.Printf("[%s] %s", e.k, human(int64(e.v)))
+			if freed > 0 {
+				fmt.Printf(" (freed %s)", human(freed))
+			}
+			fmt.Println()
+		}
+		fmt.Println()
+
+		// Calculate total freed space
+		var totalFreed int64
+		for _, fs := range freedSpace {
+			if fs > 0 {
+				totalFreed += fs
+			}
+		}
+		if totalFreed > 0 {
+			fmt.Printf("Total space freed: %s\n", human(totalFreed))
+		}
 	}
 	if len(rep.Warnings) > 0 {
 		fmt.Println("Warnings:")
