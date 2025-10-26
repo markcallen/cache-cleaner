@@ -47,6 +47,7 @@ type Tool struct {
 	Version      string `yaml:"version"`       // minimum required version (optional)
 	InstallCmd   string `yaml:"installCmd"`   // installation command (defaults to brew if tool exists in brew)
 	InstallNotes string `yaml:"installNotes"` // optional installation notes
+	CheckPath    string `yaml:"checkPath"`    // optional file path to check for existence instead of using PATH
 }
 
 type Target struct {
@@ -198,7 +199,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "npm", Enabled: true, Notes: "npm cache", Paths: []string{"~/.npm/*"}, Cmds: [][]string{{"npm", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "npm", InstallCmd: "brew install node"}}},
 			{Name: "yarn", Enabled: true, Notes: "Global Yarn cache", Paths: []string{"~/Library/Caches/Yarn/*", "~/.yarn/cache/*"}, Cmds: [][]string{{"yarn", "cache", "clean"}}, Tools: []Tool{{Name: "yarn", InstallCmd: "brew install yarn"}}},
 			{Name: "pnpm", Enabled: true, Notes: "pnpm store and cache", Paths: []string{"~/.pnpm-store/*", "~/Library/Caches/pnpm/*"}, Cmds: [][]string{{"pnpm", "store", "prune"}}, Tools: []Tool{{Name: "pnpm", InstallCmd: "brew install pnpm"}}},
-			{Name: "node-versions", Enabled: true, Notes: "Node version managers (nvm, volta)", Paths: []string{"~/.nvm/versions/node/*", "~/.volta/tools/image/node/*"}, Cmds: [][]string{{"nvm", "cache", "clear"}, {"volta", "clean"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc"}, {Name: "volta", InstallCmd: "curl https://get.volta.sh | bash"}}},
+			{Name: "node-versions", Enabled: true, Notes: "Node version managers (nvm, volta)", Paths: []string{"~/.nvm/versions/node/*", "~/.volta/tools/image/node/*"}, Cmds: [][]string{{"nvm", "cache", "clear"}, {"volta", "clean"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc", CheckPath: "~/.nvm/nvm.sh"}, {Name: "volta", InstallCmd: "curl https://get.volta.sh | bash"}}},
 			{Name: "expo", Enabled: true, Notes: "Expo and React Native caches", Paths: []string{"~/.expo/*", "~/.cache/expo/*"}, Cmds: [][]string{{"expo", "start", "-c"}}, Tools: []Tool{{Name: "expo", InstallCmd: "npm install -g expo-cli"}}},
 			{Name: "go", Enabled: true, Notes: "Go build & module caches", Paths: []string{"~/Library/Caches/go-build/*", "$GOMODCACHE/cache/*", "$GOPATH/pkg/mod/cache/*"}, Cmds: [][]string{{"go", "clean", "-cache", "-testcache", "-modcache"}}, Tools: []Tool{{Name: "go", InstallCmd: "brew install go"}}},
 			{Name: "rust", Enabled: true, Notes: "Rust registry and build caches (requires cargo-cache: cargo install cargo-cache)", Paths: []string{"~/.cargo/registry/*", "~/.cargo/git/*"}, Cmds: [][]string{{"cargo", "cache", "-a"}}, Tools: []Tool{{Name: "cargo", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"}, {Name: "cargo-cache", InstallCmd: "cargo install cargo-cache", InstallNotes: "Install this after cargo is installed"}}},
@@ -246,6 +247,15 @@ func loadConfig(path string) (*Config, error) {
 
 // checkTool checks if a tool is installed and in PATH
 func checkTool(tool Tool) (bool, string, error) {
+	// If CheckPath is specified, check for file existence instead of PATH
+	if tool.CheckPath != "" {
+		checkPath := expand(tool.CheckPath)
+		if _, err := os.Stat(checkPath); err == nil {
+			return true, checkPath, nil
+		}
+		return false, "", nil
+	}
+	
 	// Check if tool is in PATH
 	path, err := exec.LookPath(tool.Name)
 	if err != nil {
@@ -532,11 +542,15 @@ func main() {
 
 	// check tools and run commands (if clean)
 	for _, t := range targets {
-		// Check tool requirements first
+		// Check tool requirements first - create a map of tool name -> installed status
+		toolStatus := make(map[string]bool) // Track which tools are installed
+		missingTools := make(map[string]bool) // Track which tools are missing
 		if len(t.Tools) > 0 {
 			for _, tool := range t.Tools {
 				installed, _, err := checkTool(tool)
+				toolStatus[tool.Name] = installed
 				if !installed {
+					missingTools[tool.Name] = true
 					installCmd := getInstallCommand(tool)
 					errMsg := fmt.Sprintf("Required tool '%s' is not installed or not in PATH", tool.Name)
 					if err != nil {
@@ -547,19 +561,6 @@ func main() {
 						installGuidance += " - " + tool.InstallNotes
 					}
 					rep.Warnings = append(rep.Warnings, fmt.Sprintf("[%s] %s. %s", t.Name, errMsg, installGuidance))
-					
-					// In dry-run mode, mark commands as not found if tool is missing
-					if !*flagClean {
-						for _, c := range t.Cmds {
-							if len(c) > 0 && c[0] == tool.Name {
-								rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
-									Cmd:   c,
-									Found: false,
-									Error: fmt.Sprintf("tool '%s' not installed", tool.Name),
-								})
-							}
-						}
-					}
 				}
 			}
 		}
@@ -570,8 +571,32 @@ func main() {
 		if !*flagClean {
 			// record would-run
 			for _, c := range t.Cmds {
-				_, err := exec.LookPath(c[0])
-				rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{Cmd: c, Found: err == nil})
+				found := false
+				errorMsg := ""
+				
+				if len(c) > 0 {
+					// Check if this is a known tool in our tools list
+					if installed, ok := toolStatus[c[0]]; ok {
+						// Use the tool's installed status
+						found = installed
+						if !installed {
+							errorMsg = fmt.Sprintf("tool '%s' not installed", c[0])
+						}
+					} else {
+						// Not a tool in our list, just check PATH
+						_, err := exec.LookPath(c[0])
+						found = err == nil
+						if !found {
+							errorMsg = "not found"
+						}
+					}
+				}
+				
+				rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
+					Cmd:   c,
+					Found: found,
+					Error: errorMsg,
+				})
 			}
 			continue
 		}
