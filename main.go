@@ -655,6 +655,8 @@ func checkTools(cfg *Config) {
 
 func main() {
 	flag.Parse()
+    // Detect if no command-line args were provided (program name only)
+    noArgs := len(os.Args) == 1
 	if *flagListTargets {
 		cfg, err := loadConfig(*flagConfig)
 		if err != nil {
@@ -771,7 +773,7 @@ func main() {
 		fmt.Printf(" done (%s)\n", human(sum))
 	}
 
-	// output initial results
+    // output initial results
 	if *flagJSON {
 		// For JSON mode, store the before totals in the report
 		rep.Totals = beforeTotals
@@ -840,42 +842,109 @@ func main() {
 		}
 	}
 
-	// Show initial scan results
-	type kv struct{ k string; v uint64 }
-	var list []kv
-	for k, v := range beforeTotals {
-		list = append(list, kv{k, v})
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
-	for _, e := range list {
-		fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
-		
-		// Show individual directories by default
-		findings := rep.Findings[e.k]
-		// Sort findings by size descending
-		sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
-		for _, f := range findings {
-			if f.Err == "" {
-				fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
-			}
-		}
-		
-		if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
-			fmt.Println("  Commands:")
-			for _, c := range cr {
-				found := "missing"
-				if c.Found {
-					found = "ok"
-				}
-				err := ""
-				if c.Error != "" {
-					err = " (" + c.Error + ")"
-				}
-				fmt.Printf("    - %s [%s]%s\n", strings.Join(c.Cmd, " "), found, err)
-			}
-		}
-		fmt.Println()
-	}
+    // Show initial scan results (summary by default; detailed with --details)
+    type kv struct{ k string; v uint64 }
+    var list []kv
+    for k, v := range beforeTotals {
+        list = append(list, kv{k, v})
+    }
+    sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
+
+    showDetails := *flagDetails || (!noArgs && *flagDetails)
+    // If no args at all, force summary view (ignore --details which isn't set anyway)
+    if !showDetails {
+        // Create a map for quick target lookup
+        targetMap := make(map[string]Target)
+        for _, t := range targets {
+            targetMap[t.Name] = t
+        }
+        
+        // Render summary table: Target | Used | Clean Commands
+        fmt.Println("Summary (per target):")
+        fmt.Println()
+        // Compute column widths
+        nameW := 6 // len("Target")
+        usedW := 4 // len("Used")
+        rows := make([][3]string, 0, len(list))
+        for _, e := range list {
+            name := e.k
+            used := human(int64(e.v))
+            // Build commands string - only show commands for installed tools
+            cmds := ""
+            target, foundTarget := targetMap[name]
+            missingTools := []string{}
+            
+            // Check for missing required tools
+            if foundTarget && len(target.Tools) > 0 {
+                for _, tool := range target.Tools {
+                    installed, _, _ := checkTool(tool)
+                    if !installed {
+                        missingTools = append(missingTools, tool.Name)
+                    }
+                }
+            }
+            
+            if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
+                parts := make([]string, 0, len(cr))
+                for _, c := range cr {
+                    // Only include commands where the tool is found
+                    if c.Found {
+                        parts = append(parts, strings.Join(c.Cmd, " "))
+                    }
+                }
+                if len(parts) > 0 {
+                    cmds = strings.Join(parts, " && ")
+                }
+            }
+            
+            // If there are missing tools, add a message about them
+            if len(missingTools) > 0 {
+                if cmds != "" {
+                    cmds += " && "
+                }
+                if len(missingTools) == 1 {
+                    cmds += fmt.Sprintf("(tool '%s' needs to be installed)", missingTools[0])
+                } else {
+                    cmds += fmt.Sprintf("(tools '%s' need to be installed)", strings.Join(missingTools, "', '"))
+                }
+            }
+            
+            if len(name) > nameW { nameW = len(name) }
+            if len(used) > usedW { usedW = len(used) }
+            rows = append(rows, [3]string{name, used, cmds})
+        }
+        // Headers
+        fmt.Printf("%-*s  %-*s  %s\n", nameW, "Target", usedW, "Used", "Clean Commands")
+        fmt.Printf("%-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), usedW, strings.Repeat("-", usedW), strings.Repeat("-", 50))
+        // Rows
+        for _, r := range rows {
+            fmt.Printf("%-*s  %-*s  %s\n", nameW, r[0], usedW, r[1], r[2])
+        }
+        fmt.Println()
+    } else {
+        for _, e := range list {
+            fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
+            // Show individual directories (detailed)
+            findings := rep.Findings[e.k]
+            sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+            for _, f := range findings {
+                if f.Err == "" {
+                    fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+                }
+            }
+            if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
+                fmt.Println("  Commands:")
+                for _, c := range cr {
+                    found := "missing"
+                    if c.Found { found = "ok" }
+                    err := ""
+                    if c.Error != "" { err = " (" + c.Error + ")" }
+                    fmt.Printf("    - %s [%s]%s\n", strings.Join(c.Cmd, " "), found, err)
+                }
+            }
+            fmt.Println()
+        }
+    }
 
 	// Now run commands if --clean is specified
 	if *flagClean {
@@ -935,34 +1004,107 @@ func main() {
 			rep.Findings[t.Name] = afterFindings
 		}
 
-		// Show after scan results with freed space
+        // Show after scan results with freed space
 		type kv2 struct{ k string; v uint64 }
 		var list2 []kv2
 		for k, v := range afterTotals {
 			list2 = append(list2, kv2{k, v})
 		}
 		sort.Slice(list2, func(i, j int) bool { return list2[i].v > list2[j].v })
-		fmt.Println("After cleanup:")
-		fmt.Println()
-		for _, e := range list2 {
-			freed := freedSpace[e.k]
-			fmt.Printf("[%s] %s", e.k, human(int64(e.v)))
-			if freed > 0 {
-				fmt.Printf(" (freed %s)", human(freed))
-			}
-			fmt.Println()
-			
-			// Show individual directories
-			findings := rep.Findings[e.k]
-			// Sort findings by size descending
-			sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
-			for _, f := range findings {
-				if f.Err == "" {
-					fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
-				}
-			}
-		}
-		fmt.Println()
+        fmt.Println("After cleanup:")
+        fmt.Println()
+        if !*flagDetails {
+            // Summary view after cleanup
+            // Render summary table: Target | Used | Freed | Clean Commands
+            // Create a map for quick target lookup (if not already created earlier)
+            targetMap := make(map[string]Target)
+            for _, t := range targets {
+                targetMap[t.Name] = t
+            }
+            
+            nameW := 6
+            usedW := 4
+            freedW := 5
+            rows := make([][4]string, 0, len(list2))
+            for _, e := range list2 {
+                name := e.k
+                used := human(int64(e.v))
+                freed := "-"
+                if fs := freedSpace[e.k]; fs > 0 { freed = human(fs) }
+                
+                // Build commands string - only show commands for installed tools
+                cmds := ""
+                target, foundTarget := targetMap[name]
+                missingTools := []string{}
+                
+                // Check for missing required tools
+                if foundTarget && len(target.Tools) > 0 {
+                    for _, tool := range target.Tools {
+                        installed, _, _ := checkTool(tool)
+                        if !installed {
+                            missingTools = append(missingTools, tool.Name)
+                        }
+                    }
+                }
+                
+                if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
+                    parts := make([]string, 0, len(cr))
+                    for _, c := range cr {
+                        // Only include commands where the tool is found
+                        if c.Found {
+                            parts = append(parts, strings.Join(c.Cmd, " "))
+                        }
+                    }
+                    if len(parts) > 0 {
+                        cmds = strings.Join(parts, " && ")
+                    }
+                }
+                
+                // If there are missing tools, add a message about them
+                if len(missingTools) > 0 {
+                    if cmds != "" {
+                        cmds += " && "
+                    }
+                    if len(missingTools) == 1 {
+                        cmds += fmt.Sprintf("(tool '%s' needs to be installed)", missingTools[0])
+                    } else {
+                        cmds += fmt.Sprintf("(tools '%s' need to be installed)", strings.Join(missingTools, "', '"))
+                    }
+                }
+                
+                if cmds == "" {
+                    cmds = "(no commands)"
+                }
+                
+                if len(name) > nameW { nameW = len(name) }
+                if len(used) > usedW { usedW = len(used) }
+                if len(freed) > freedW { freedW = len(freed) }
+                rows = append(rows, [4]string{name, used, freed, cmds})
+            }
+            fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, "Target", usedW, "Used", freedW, "Freed", "Clean Commands")
+            fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), usedW, strings.Repeat("-", usedW), freedW, strings.Repeat("-", freedW), strings.Repeat("-", 50))
+            for _, r := range rows {
+                fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, r[0], usedW, r[1], freedW, r[2], r[3])
+            }
+            fmt.Println()
+        } else {
+            for _, e := range list2 {
+                freed := freedSpace[e.k]
+                fmt.Printf("[%s] %s", e.k, human(int64(e.v)))
+                if freed > 0 {
+                    fmt.Printf(" (freed %s)", human(freed))
+                }
+                fmt.Println()
+                findings := rep.Findings[e.k]
+                sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+                for _, f := range findings {
+                    if f.Err == "" {
+                        fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+                    }
+                }
+            }
+            fmt.Println()
+        }
 
 		// Calculate total freed space
 		var totalFreed int64
