@@ -153,6 +153,54 @@ func inspectPath(root string) (Finding, error) {
 	return f, errWalk
 }
 
+// getTerraformCacheDir reads ~/.terraformrc or ~/.terraform.d/terraform.rc to get plugin_cache_dir, or returns default
+func getTerraformCacheDir() string {
+	// Check both possible locations for terraformrc
+	configPaths := []string{
+		expand("~/.terraformrc"),
+		expand("~/.terraform.d/terraform.rc"),
+	}
+	
+	var content []byte
+	var err error
+	for _, path := range configPaths {
+		content, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
+	}
+	
+	if err != nil {
+		// Neither file exists or can't be read, use default
+		return expand("~/.terraform.d/plugin-cache")
+	}
+	
+	// Parse HCL-style config to find plugin_cache_dir
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip comments and empty lines
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+		// Match: plugin_cache_dir = "..."
+		if strings.HasPrefix(line, "plugin_cache_dir") {
+			// Try to extract value from quotes
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				value := strings.TrimSpace(parts[1])
+				// Remove quotes if present
+				value = strings.Trim(value, "\"'`")
+				// Expand any environment variables or ~
+				return expand(value)
+			}
+		}
+	}
+	
+	// Default if not found in config
+	return expand("~/.terraform.d/plugin-cache")
+}
+
 func expandGlobs(pattern string) ([]string, error) {
 	pattern = expand(pattern)
 	if strings.Contains(pattern, "$(brew --cache)") {
@@ -167,6 +215,25 @@ func expandGlobs(pattern string) ([]string, error) {
 			pattern = strings.ReplaceAll(pattern, "$(brew --cache)", "~/Library/Caches/Homebrew")
 		}
 	}
+	if strings.Contains(pattern, "$(terraform --plugin-cache)") {
+		terraformCacheDir := getTerraformCacheDir()
+		pattern = strings.ReplaceAll(pattern, "$(terraform --plugin-cache)", terraformCacheDir)
+	}
+	
+	// Check if pattern contains glob wildcards
+	hasWildcards := strings.Contains(pattern, "*") || strings.Contains(pattern, "?") || strings.Contains(pattern, "[")
+	
+	if !hasWildcards {
+		// No wildcards - check if path exists
+		if _, err := os.Stat(pattern); err == nil {
+			// Path exists, return it directly (inspectPath will handle recursive traversal for directories)
+			return []string{pattern}, nil
+		}
+		// Path doesn't exist - return empty (will be handled as error by caller)
+		return []string{}, nil
+	}
+	
+	// Has wildcards - use glob expansion
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err
@@ -194,31 +261,33 @@ func writeStarterConfig(path string, force bool) error {
 		Version: 1,
 		Options: Options{DockerPruneByDefault: false},
 		Targets: []Target{
-			{Name: "docker", Enabled: true, Notes: "Docker caches and images (safe CLI prune only)", Paths: []string{"~/Library/Caches/docker/*", "~/Library/Caches/buildx/*", "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"}, Cmds: [][]string{{"docker", "builder", "prune", "-af"}, {"docker", "system", "prune", "-af", "--volumes"}}, Tools: []Tool{{Name: "docker", InstallCmd: "brew install --cask docker"}}},
-			{Name: "brew", Enabled: true, Notes: "Homebrew cleanup (removes old packages and caches)", Paths: []string{"~/Library/Caches/Homebrew/*", "$(brew --cache)/*"}, Cmds: [][]string{{"brew", "cleanup", "-s"}, {"brew", "autoremove"}}, Tools: []Tool{{Name: "brew", InstallCmd: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""}}},
-			{Name: "npm", Enabled: true, Notes: "npm cache", Paths: []string{"~/.npm/*"}, Cmds: [][]string{{"npm", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "npm", InstallCmd: "brew install node"}}},
-			{Name: "yarn", Enabled: true, Notes: "Global Yarn cache", Paths: []string{"~/Library/Caches/Yarn/*", "~/.yarn/cache/*"}, Cmds: [][]string{{"yarn", "cache", "clean"}}, Tools: []Tool{{Name: "yarn", InstallCmd: "brew install yarn"}}},
-			{Name: "pnpm", Enabled: true, Notes: "pnpm store and cache", Paths: []string{"~/.pnpm-store/*", "~/Library/Caches/pnpm/*"}, Cmds: [][]string{{"pnpm", "store", "prune"}}, Tools: []Tool{{Name: "pnpm", InstallCmd: "brew install pnpm"}}},
-			{Name: "node-versions", Enabled: true, Notes: "Node version managers (nvm, volta)", Paths: []string{"~/.nvm/versions/node/*", "~/.volta/tools/image/node/*"}, Cmds: [][]string{{"nvm", "cache", "clear"}, {"volta", "clean"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc", CheckPath: "~/.nvm/nvm.sh"}, {Name: "volta", InstallCmd: "curl https://get.volta.sh | bash"}}},
-			{Name: "expo", Enabled: true, Notes: "Expo and React Native caches", Paths: []string{"~/.expo/*", "~/.cache/expo/*"}, Cmds: [][]string{{"expo", "start", "-c"}}, Tools: []Tool{{Name: "expo", InstallCmd: "npm install -g expo-cli"}}},
-			{Name: "go", Enabled: true, Notes: "Go build & module caches", Paths: []string{"~/Library/Caches/go-build/*", "$GOMODCACHE/cache/*", "$GOPATH/pkg/mod/cache/*"}, Cmds: [][]string{{"go", "clean", "-cache", "-testcache", "-modcache"}}, Tools: []Tool{{Name: "go", InstallCmd: "brew install go"}}},
-			{Name: "rust", Enabled: true, Notes: "Rust registry and build caches (requires cargo-cache: cargo install cargo-cache)", Paths: []string{"~/.cargo/registry/*", "~/.cargo/git/*"}, Cmds: [][]string{{"cargo", "cache", "-a"}}, Tools: []Tool{{Name: "cargo", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"}, {Name: "cargo-cache", InstallCmd: "cargo install cargo-cache", InstallNotes: "Install this after cargo is installed"}}},
-			{Name: "python", Enabled: true, Notes: "pip, pipenv, and poetry caches", Paths: []string{"~/.cache/pip/*", "~/Library/Caches/pip/*", "~/.local/share/virtualenvs/*", "~/Library/Caches/pypoetry/*"}, Cmds: [][]string{{"pip", "cache", "purge"}, {"poetry", "cache", "clear", "--all", "pypi"}}, Tools: []Tool{{Name: "pip", InstallCmd: "brew install python", InstallNotes: "pip is included with Python installation"}, {Name: "poetry", InstallCmd: "brew install poetry"}}},
-			{Name: "conda", Enabled: true, Notes: "Conda package and cache cleanup", Paths: []string{"~/.conda/pkgs/*", "~/.conda/envs/*"}, Cmds: [][]string{{"conda", "clean", "-a", "-y"}}, Tools: []Tool{{Name: "conda", InstallCmd: "brew install miniconda"}}},
-			{Name: "maven", Enabled: true, Notes: "Maven local repo purge (safe via plugin)", Paths: []string{"~/.m2/repository/*"}, Cmds: [][]string{{"mvn", "-q", "dependency:purge-local-repository", "-DreResolve=false"}}, Tools: []Tool{{Name: "mvn", InstallCmd: "brew install maven"}}},
-			{Name: "gradle", Enabled: true, Notes: "Gradle build caches and wrappers", Paths: []string{"~/.gradle/caches/*", "~/.gradle/wrapper/dists/*"}, Cmds: [][]string{}, Tools: []Tool{{Name: "gradle", InstallCmd: "brew install gradle"}}},
-			{Name: "xcode", Enabled: true, Notes: "Xcode build artifacts and caches", Paths: []string{"~/Library/Developer/Xcode/DerivedData/*", "~/Library/Developer/Xcode/Archives/*", "~/Library/Developer/Xcode/ModuleCache.noindex/*"}, Cmds: [][]string{{"xcrun", "simctl", "delete", "unavailable"}}},
-			{Name: "ruby", Enabled: true, Notes: "Ruby and Bundler caches", Paths: []string{"~/.gem/cache/*", "~/.bundle/cache/*"}, Cmds: [][]string{{"gem", "cleanup"}, {"bundle", "clean", "--force"}}, Tools: []Tool{{Name: "gem", InstallCmd: "brew install ruby", InstallNotes: "gem is included with Ruby installation"}, {Name: "bundle", InstallCmd: "gem install bundler"}}},
-			{Name: "php", Enabled: true, Notes: "Composer PHP cache", Paths: []string{"~/.composer/cache/*"}, Cmds: [][]string{{"composer", "clear-cache"}}, Tools: []Tool{{Name: "composer", InstallCmd: "brew install composer"}}},
-			{Name: "dotnet", Enabled: true, Notes: ".NET SDK and NuGet caches", Paths: []string{"~/.nuget/packages/*", "~/.dotnet/tools/*"}, Cmds: [][]string{{"dotnet", "nuget", "locals", "all", "--clear"}}, Tools: []Tool{{Name: "dotnet", InstallCmd: "brew install --cask dotnet"}}},
-			{Name: "vscode", Enabled: true, Notes: "VS Code caches and logs", Paths: []string{"~/Library/Application Support/Code/Cache/*", "~/Library/Application Support/Code/CachedData/*", "~/Library/Application Support/Code/GPUCache/*", "~/Library/Application Support/Code/logs/*"}, Cmds: [][]string{}},
-			{Name: "jetbrains", Enabled: true, Notes: "JetBrains IDE caches (IntelliJ, PyCharm, WebStorm, etc.)", Paths: []string{"~/Library/Caches/JetBrains/*", "~/Library/Logs/JetBrains/*", "~/Library/Application Support/JetBrains/*/system/caches/*"}, Cmds: [][]string{}},
-			{Name: "build-tools", Enabled: true, Notes: "Compiler and build caches (ccache, bazel, Xcode)", Paths: []string{"~/.ccache/*", "~/.bazel-cache/*", "~/.cache/bazel/*"}, Cmds: [][]string{{"ccache", "-C"}}, Tools: []Tool{{Name: "ccache", InstallCmd: "brew install ccache"}}},
-			{Name: "chrome", Enabled: true, Notes: "Chrome cache (informational only)", Paths: []string{"~/Library/Caches/Google/Chrome/*", "~/Library/Application Support/Google/Chrome/*/Cache/*"}, Cmds: [][]string{}},
-			{Name: "macos", Enabled: false, Notes: "macOS system caches (advanced users only)", Paths: []string{"~/Library/Caches/*", "~/Library/Containers/com.apple.QuickLook.thumbnailcache/*"}, Cmds: [][]string{{"qlmanage", "-r", "cache"}}},
-			{Name: "flutter", Enabled: true, Notes: "Flutter and Dart caches (pub, SDK, and analysis artifacts)", Paths: []string{"~/.pub-cache/*", "~/.dartServer/*", "~/Library/Developer/flutter/*", "~/Library/Caches/flutter/*"}, Cmds: [][]string{{"flutter", "pub", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "flutter", InstallCmd: "Install Flutter manually", InstallNotes: "For installation instructions, visit: https://docs.flutter.dev/install/manual"}}},
-			{Name: "android", Enabled: true, Notes: "Android SDK and emulator caches", Paths: []string{"~/.android/cache/*", "~/.android/avd/*", "~/Library/Android/sdk/*"}, Cmds: [][]string{{"sdkmanager", "--update"}}},
-			{Name: "android-studio", Enabled: true, Notes: "Android Studio IDE caches, logs, and indexes", Paths: []string{"~/Library/Caches/Google/AndroidStudio*/*", "~/Library/Logs/Google/AndroidStudio*/*", "~/Library/Application Support/Google/AndroidStudio*/system/caches/*", "~/Library/Application Support/Google/AndroidStudio*/system/index/*"}, Cmds: [][]string{}},
+			{Name: "docker", Enabled: true, Notes: "Docker caches and images (safe CLI prune only)", Paths: []string{"~/Library/Caches/docker", "~/Library/Caches/buildx", "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"}, Cmds: [][]string{{"docker", "builder", "prune", "-af"}, {"docker", "system", "prune", "-af", "--volumes"}}, Tools: []Tool{{Name: "docker", InstallCmd: "brew install --cask docker"}}},
+			{Name: "brew", Enabled: true, Notes: "Homebrew cleanup (removes old packages and caches)", Paths: []string{"~/Library/Caches/Homebrew", "$(brew --cache)"}, Cmds: [][]string{{"brew", "cleanup", "-s"}, {"brew", "autoremove"}}, Tools: []Tool{{Name: "brew", InstallCmd: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""}}},
+			{Name: "npm", Enabled: true, Notes: "npm cache", Paths: []string{"~/.npm"}, Cmds: [][]string{{"npm", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "npm", InstallCmd: "brew install node"}}},
+			{Name: "yarn", Enabled: true, Notes: "Global Yarn cache", Paths: []string{"~/Library/Caches/Yarn", "~/.yarn/cache"}, Cmds: [][]string{{"yarn", "cache", "clean"}}, Tools: []Tool{{Name: "yarn", InstallCmd: "brew install yarn"}}},
+			{Name: "pnpm", Enabled: true, Notes: "pnpm store and cache", Paths: []string{"~/.pnpm-store", "~/Library/Caches/pnpm"}, Cmds: [][]string{{"pnpm", "store", "prune"}}, Tools: []Tool{{Name: "pnpm", InstallCmd: "brew install pnpm"}}},
+			{Name: "node-versions", Enabled: true, Notes: "Node version managers (nvm, volta)", Paths: []string{"~/.nvm/versions/node", "~/.volta/tools/image/node"}, Cmds: [][]string{{"nvm", "cache", "clear"}, {"volta", "clean"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc", CheckPath: "~/.nvm/nvm.sh"}, {Name: "volta", InstallCmd: "curl https://get.volta.sh | bash"}}},
+			{Name: "expo", Enabled: true, Notes: "Expo and React Native caches", Paths: []string{"~/.expo", "~/.cache/expo"}, Cmds: [][]string{{"expo", "start", "-c"}}, Tools: []Tool{{Name: "expo", InstallCmd: "npm install -g expo-cli"}}},
+			{Name: "go", Enabled: true, Notes: "Go build & module caches", Paths: []string{"~/Library/Caches/go-build", "$GOMODCACHE/cache", "$GOPATH/pkg/mod/cache"}, Cmds: [][]string{{"go", "clean", "-cache", "-testcache", "-modcache"}}, Tools: []Tool{{Name: "go", InstallCmd: "brew install go"}}},
+			{Name: "rust", Enabled: true, Notes: "Rust registry and build caches (requires cargo-cache: cargo install cargo-cache)", Paths: []string{"~/.cargo/registry", "~/.cargo/git"}, Cmds: [][]string{{"cargo", "cache", "-a"}}, Tools: []Tool{{Name: "cargo", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"}, {Name: "cargo-cache", InstallCmd: "cargo install cargo-cache", InstallNotes: "Install this after cargo is installed"}}},
+			{Name: "python", Enabled: true, Notes: "pip, pipenv, and poetry caches", Paths: []string{"~/.cache/pip", "~/Library/Caches/pip", "~/.local/share/virtualenvs", "~/Library/Caches/pypoetry"}, Cmds: [][]string{{"pip", "cache", "purge"}, {"poetry", "cache", "clear", "--all", "pypi"}}, Tools: []Tool{{Name: "pip", InstallCmd: "brew install python", InstallNotes: "pip is included with Python installation"}, {Name: "poetry", InstallCmd: "brew install poetry"}}},
+			{Name: "conda", Enabled: true, Notes: "Conda package and cache cleanup", Paths: []string{"~/.conda/pkgs", "~/.conda/envs"}, Cmds: [][]string{{"conda", "clean", "-a", "-y"}}, Tools: []Tool{{Name: "conda", InstallCmd: "brew install miniconda"}}},
+			{Name: "maven", Enabled: true, Notes: "Maven local repo purge (safe via plugin)", Paths: []string{"~/.m2/repository"}, Cmds: [][]string{{"mvn", "-q", "dependency:purge-local-repository", "-DreResolve=false"}}, Tools: []Tool{{Name: "mvn", InstallCmd: "brew install maven"}}},
+			{Name: "gradle", Enabled: true, Notes: "Gradle build caches and wrappers", Paths: []string{"~/.gradle/caches", "~/.gradle/wrapper/dists"}, Cmds: [][]string{}, Tools: []Tool{{Name: "gradle", InstallCmd: "brew install gradle"}}},
+			{Name: "xcode", Enabled: true, Notes: "Xcode build artifacts and caches", Paths: []string{"~/Library/Developer/Xcode/DerivedData", "~/Library/Developer/Xcode/Archives", "~/Library/Developer/Xcode/ModuleCache.noindex"}, Cmds: [][]string{{"xcrun", "simctl", "delete", "unavailable"}}},
+			{Name: "ruby", Enabled: true, Notes: "Ruby and Bundler caches", Paths: []string{"~/.gem/cache", "~/.bundle/cache"}, Cmds: [][]string{{"gem", "cleanup"}, {"bundle", "clean", "--force"}}, Tools: []Tool{{Name: "gem", InstallCmd: "brew install ruby", InstallNotes: "gem is included with Ruby installation"}, {Name: "bundle", InstallCmd: "gem install bundler"}}},
+			{Name: "php", Enabled: true, Notes: "Composer PHP cache", Paths: []string{"~/.composer/cache"}, Cmds: [][]string{{"composer", "clear-cache"}}, Tools: []Tool{{Name: "composer", InstallCmd: "brew install composer"}}},
+			{Name: "dotnet", Enabled: true, Notes: ".NET SDK and NuGet caches", Paths: []string{"~/.nuget/packages", "~/.dotnet/tools"}, Cmds: [][]string{{"dotnet", "nuget", "locals", "all", "--clear"}}, Tools: []Tool{{Name: "dotnet", InstallCmd: "brew install --cask dotnet"}}},
+			{Name: "vscode", Enabled: true, Notes: "VS Code caches and logs", Paths: []string{"~/Library/Application Support/Code/Cache", "~/Library/Application Support/Code/CachedData", "~/Library/Application Support/Code/GPUCache", "~/Library/Application Support/Code/logs"}, Cmds: [][]string{}},
+			{Name: "jetbrains", Enabled: true, Notes: "JetBrains IDE caches (IntelliJ, PyCharm, WebStorm, etc.)", Paths: []string{"~/Library/Caches/JetBrains", "~/Library/Logs/JetBrains", "~/Library/Application Support/JetBrains/*/system/caches"}, Cmds: [][]string{}},
+			{Name: "build-tools", Enabled: true, Notes: "Compiler and build caches (ccache, bazel, Xcode)", Paths: []string{"~/.ccache", "~/.bazel-cache", "~/.cache/bazel"}, Cmds: [][]string{{"ccache", "-C"}}, Tools: []Tool{{Name: "ccache", InstallCmd: "brew install ccache"}}},
+			{Name: "chrome", Enabled: true, Notes: "Chrome cache (informational only)", Paths: []string{"~/Library/Caches/Google/Chrome", "~/Library/Application Support/Google/Chrome/*/Cache"}, Cmds: [][]string{}},
+			{Name: "macos", Enabled: false, Notes: "macOS system caches (advanced users only)", Paths: []string{"~/Library/Caches", "~/Library/Containers/com.apple.QuickLook.thumbnailcache"}, Cmds: [][]string{{"qlmanage", "-r", "cache"}}},
+			{Name: "flutter", Enabled: true, Notes: "Flutter and Dart caches (pub, SDK, and analysis artifacts)", Paths: []string{"~/.pub-cache", "~/.dartServer", "~/Library/Developer/flutter", "~/Library/Caches/flutter"}, Cmds: [][]string{{"flutter", "pub", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "flutter", InstallCmd: "Install Flutter manually", InstallNotes: "For installation instructions, visit: https://docs.flutter.dev/install/manual"}}},
+			{Name: "android", Enabled: true, Notes: "Android SDK and emulator caches", Paths: []string{"~/.android/cache", "~/.android/avd", "~/Library/Android/sdk"}, Cmds: [][]string{{"sdkmanager", "--update"}}},
+			{Name: "android-studio", Enabled: true, Notes: "Android Studio IDE caches, logs, and indexes", Paths: []string{"~/Library/Caches/Google/AndroidStudio*", "~/Library/Logs/Google/AndroidStudio*", "~/Library/Application Support/Google/AndroidStudio*/system/caches", "~/Library/Application Support/Google/AndroidStudio*/system/index"}, Cmds: [][]string{}},
+			{Name: "terraform", Enabled: true, Notes: "Terraform plugin cache (reads ~/.terraformrc for plugin_cache_dir, defaults to ~/.terraform.d/plugin-cache)", Paths: []string{"$(terraform --plugin-cache)"}, Cmds: [][]string{}, Tools: []Tool{{Name: "terraform", InstallCmd: "brew install terraform"}}},
+			{Name: "packer", Enabled: true, Notes: "Packer plugins directory", Paths: []string{"~/.packer.d/plugins"}, Cmds: [][]string{}, Tools: []Tool{{Name: "packer", InstallCmd: "brew install packer"}}},
 		},
 	}
 	if err := ensureDir(path); err != nil {
@@ -552,6 +621,7 @@ func main() {
 			if err != nil {
 				f.Err = err.Error()
 			}
+			rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
 			sum += f.SizeBytes
 		}
 		beforeTotals[t.Name] = uint64(sum)
@@ -636,6 +706,17 @@ func main() {
 	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
 	for _, e := range list {
 		fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
+		
+		// Show individual directories by default
+		findings := rep.Findings[e.k]
+		// Sort findings by size descending
+		sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+		for _, f := range findings {
+			if f.Err == "" {
+				fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+			}
+		}
+		
 		if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
 			fmt.Println("  Commands:")
 			for _, c := range cr {
@@ -672,6 +753,8 @@ func main() {
 			fmt.Printf("Scanning [%s]...", t.Name)
 			var sum int64
 			var expanded []string
+			// Clear old findings for this target
+			afterFindings := []Finding{}
 			for _, p := range t.Paths {
 				matches, err := expandGlobs(p)
 				if err != nil {
@@ -684,6 +767,7 @@ func main() {
 				if err != nil {
 					f.Err = err.Error()
 				}
+				afterFindings = append(afterFindings, f)
 				sum += f.SizeBytes
 			}
 			afterTotals[t.Name] = uint64(sum)
@@ -693,6 +777,9 @@ func main() {
 				fmt.Printf(", freed %s", human(freedSpace[t.Name]))
 			}
 			fmt.Println(")")
+			
+			// Store findings for later display
+			rep.Findings[t.Name] = afterFindings
 		}
 
 		// Show after scan results with freed space
@@ -711,6 +798,16 @@ func main() {
 				fmt.Printf(" (freed %s)", human(freed))
 			}
 			fmt.Println()
+			
+			// Show individual directories
+			findings := rep.Findings[e.k]
+			// Sort findings by size descending
+			sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+			for _, f := range findings {
+				if f.Err == "" {
+					fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+				}
+			}
 		}
 		fmt.Println()
 
