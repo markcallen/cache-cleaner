@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,6 +34,11 @@ var allowedCommandSubstitutions = map[string]func([]string) (string, error){
 			return expand("~/Library/Caches/Homebrew"), nil
 		}
 		return "", fmt.Errorf("unsupported brew argument: %v", args)
+	},
+	"docker": func(args []string) (string, error) {
+		// Intentionally limited: command substitutions are for path expansion only.
+		// Docker substitutions are not used for paths; allowlisting only to satisfy config expectations.
+		return "", fmt.Errorf("unsupported docker substitution for path expansion: %v", args)
 	},
 }
 
@@ -135,6 +141,133 @@ func human(n int64) string {
 		}
 	}
 	return fmt.Sprintf("%.2f TB", v/1024)
+}
+
+// parseHumanSize converts strings like "12.3GB", "456 MB", "78.9kB", "1024 B" into bytes
+func parseHumanSize(s string) (int64, bool) {
+ 	s = strings.TrimSpace(s)
+ 	// remove any trailing percentage or parenthetical text like "(40%)"
+ 	if i := strings.IndexByte(s, '('); i != -1 {
+ 		s = strings.TrimSpace(s[:i])
+ 	}
+ 	// remove commas and extra spaces
+ 	s = strings.ReplaceAll(s, ",", "")
+ 	parts := strings.Fields(s)
+ 	if len(parts) == 0 {
+ 		return 0, false
+ 	}
+ 	val := parts[0]
+ 	unit := "B"
+ 	if len(parts) > 1 {
+ 		unit = parts[1]
+ 	} else {
+ 		// If unit is appended without space, split trailing letters
+ 		i := len(val) - 1
+ 		for i >= 0 && ((val[i] >= 'A' && val[i] <= 'Z') || (val[i] >= 'a' && val[i] <= 'z')) {
+ 			i--
+ 		}
+ 		if i >= 0 && i < len(val)-1 {
+ 			unit = val[i+1:]
+ 			val = val[:i+1]
+ 		}
+ 	}
+ 	v, err := strconv.ParseFloat(val, 64)
+ 	if err != nil {
+ 		return 0, false
+ 	}
+ 	switch strings.ToUpper(unit) {
+ 	case "B":
+ 		return int64(v), true
+ 	case "KB", "KIB", "K":
+ 		return int64(v * 1024), true
+ 	case "MB", "MIB", "M":
+ 		return int64(v * 1024 * 1024), true
+ 	case "GB", "GIB", "G":
+ 		return int64(v * 1024 * 1024 * 1024), true
+ 	case "TB", "TIB", "T":
+ 		return int64(v * 1024 * 1024 * 1024 * 1024), true
+ 	default:
+ 		return 0, false
+ 	}
+}
+
+// dockerSystemDF gathers Docker disk usage via `docker system df` and returns findings and total bytes
+func dockerSystemDF() ([]Finding, int64, error) {
+ 	// Prefer JSON output; fallback to line-delimited json template if necessary
+ 	tryTemplate := func() ([]Finding, int64, error) {
+ 		c := exec.Command("docker", "system", "df", "--format", "{{json .}}")
+ 		out, err := c.Output()
+ 		if err != nil {
+ 			return nil, 0, err
+ 		}
+ 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+ 		var findings []Finding
+ 		var total int64
+ 		for _, ln := range lines {
+ 			ln = strings.TrimSpace(ln)
+ 			if ln == "" { continue }
+ 			var row map[string]any
+ 			if err := json.Unmarshal([]byte(ln), &row); err != nil {
+ 				continue
+ 			}
+ 			typ, _ := row["Type"].(string)
+ 			if typ == "" {
+ 				if t2, ok := row["type"].(string); ok { typ = t2 }
+ 			}
+ 			items := 0
+ 			if tc, ok := row["TotalCount"].(float64); ok { items = int(tc) }
+ 			if tc, ok := row["totalCount"].(float64); ok { items = int(tc) }
+ 			sizeBytes := int64(0)
+ 			if sb, ok := row["SizeBytes"].(float64); ok { sizeBytes = int64(sb) }
+ 			if sizeBytes == 0 {
+ 				if sz, ok := row["Size"].(string); ok {
+ 					if b, ok := parseHumanSize(sz); ok { sizeBytes = b }
+ 				}
+ 			}
+ 			f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
+ 			findings = append(findings, f)
+ 			total += sizeBytes
+ 		}
+ 		return findings, total, nil
+ 	}
+
+ 	// First attempt: native JSON if supported
+ 	c := exec.Command("docker", "system", "df", "--format", "json")
+ 	out, err := c.Output()
+ 	if err == nil {
+ 		// Try to parse as either array or object with arrays
+ 		clean := strings.TrimSpace(string(out))
+ 		var findings []Finding
+ 		var total int64
+ 		if strings.HasPrefix(clean, "[") {
+ 			var rows []map[string]any
+ 			if e := json.Unmarshal([]byte(clean), &rows); e == nil {
+ 				for _, row := range rows {
+ 					typ, _ := row["Type"].(string)
+ 					if typ == "" {
+ 						if t2, ok := row["type"].(string); ok { typ = t2 }
+ 					}
+ 					items := 0
+ 					if tc, ok := row["TotalCount"].(float64); ok { items = int(tc) }
+ 					if tc, ok := row["totalCount"].(float64); ok { items = int(tc) }
+ 					sizeBytes := int64(0)
+ 					if sb, ok := row["SizeBytes"].(float64); ok { sizeBytes = int64(sb) }
+ 					if sizeBytes == 0 {
+ 						if sz, ok := row["Size"].(string); ok {
+ 							if b, ok := parseHumanSize(sz); ok { sizeBytes = b }
+ 						}
+ 					}
+ 					f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
+ 					findings = append(findings, f)
+ 					total += sizeBytes
+ 				}
+ 				return findings, total, nil
+ 			}
+ 		}
+ 		// If not array, fall through to template parsing
+ 	}
+ 	// Fallback
+ 	return tryTemplate()
 }
 
 func inspectPath(root string) (Finding, error) {
@@ -607,22 +740,32 @@ func main() {
 	for _, t := range targets {
 		fmt.Printf("Scanning [%s]...", t.Name)
 		var sum int64
-		var expanded []string
-		for _, p := range t.Paths {
-			matches, err := expandGlobs(p)
+
+		if strings.ToLower(t.Name) == "docker" {
+			findings, total, err := dockerSystemDF()
 			if err != nil {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf("glob error %s:%s: %v", t.Name, p, err))
-				continue
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf("docker df error: %v", err))
 			}
-			expanded = append(expanded, matches...)
-		}
-		for _, p := range expanded {
-			f, err := inspectPath(p)
-			if err != nil {
-				f.Err = err.Error()
+			rep.Findings[t.Name] = append(rep.Findings[t.Name], findings...)
+			sum = total
+		} else {
+			var expanded []string
+			for _, p := range t.Paths {
+				matches, err := expandGlobs(p)
+				if err != nil {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("glob error %s:%s: %v", t.Name, p, err))
+					continue
+				}
+				expanded = append(expanded, matches...)
 			}
-			rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
-			sum += f.SizeBytes
+			for _, p := range expanded {
+				f, err := inspectPath(p)
+				if err != nil {
+					f.Err = err.Error()
+				}
+				rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
+				sum += f.SizeBytes
+			}
 		}
 		beforeTotals[t.Name] = uint64(sum)
 		fmt.Printf(" done (%s)\n", human(sum))
@@ -752,23 +895,33 @@ func main() {
 		for _, t := range targets {
 			fmt.Printf("Scanning [%s]...", t.Name)
 			var sum int64
-			var expanded []string
 			// Clear old findings for this target
 			afterFindings := []Finding{}
-			for _, p := range t.Paths {
-				matches, err := expandGlobs(p)
+
+			if strings.ToLower(t.Name) == "docker" {
+				findings, total, err := dockerSystemDF()
 				if err != nil {
-					continue
+					// keep going; just won't have docker findings
 				}
-				expanded = append(expanded, matches...)
-			}
-			for _, p := range expanded {
-				f, err := inspectPath(p)
-				if err != nil {
-					f.Err = err.Error()
+				afterFindings = append(afterFindings, findings...)
+				sum = total
+			} else {
+				var expanded []string
+				for _, p := range t.Paths {
+					matches, err := expandGlobs(p)
+					if err != nil {
+						continue
+					}
+					expanded = append(expanded, matches...)
 				}
-				afterFindings = append(afterFindings, f)
-				sum += f.SizeBytes
+				for _, p := range expanded {
+					f, err := inspectPath(p)
+					if err != nil {
+						f.Err = err.Error()
+					}
+					afterFindings = append(afterFindings, f)
+					sum += f.SizeBytes
+				}
 			}
 			afterTotals[t.Name] = uint64(sum)
 			freedSpace[t.Name] = int64(beforeTotals[t.Name]) - int64(afterTotals[t.Name])
