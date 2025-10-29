@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	"gopkg.in/yaml.v3"
+	"github.com/olekukonko/tablewriter"
 )
 
 // ----- Command whitelist -----
@@ -413,7 +414,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "android-studio", Enabled: true, Notes: "Android Studio IDE caches, logs, and indexes", Paths: []string{"~/Library/Caches/Google/AndroidStudio*", "~/Library/Logs/Google/AndroidStudio*", "~/Library/Application Support/Google/AndroidStudio*/system/caches", "~/Library/Application Support/Google/AndroidStudio*/system/index"}, Cmds: [][]string{}},
 			{Name: "terraform", Enabled: true, Notes: "Terraform plugin cache", Paths: []string{"~/.terraform.d/plugin-cache/"}, Cmds: [][]string{}, Tools: []Tool{{Name: "terraform", InstallCmd: "brew install terraform"}}},
 			{Name: "packer", Enabled: true, Notes: "Packer plugins directory", Paths: []string{"~/.packer.d/plugins"}, Cmds: [][]string{}, Tools: []Tool{{Name: "packer", InstallCmd: "brew install packer"}}},
-			{Name: "ollama", Enabled: true, Notes: "Ollama models and cache (uses official prune)", Paths: []string{"~/.ollama", "~/.ollama/models"}, Cmds: [][]string{{"ollama", "prune"}}, Tools: []Tool{{Name: "ollama", InstallCmd: "brew install ollama"}}},
+			{Name: "ollama", Enabled: true, Notes: "Ollama models and cache (uses official prune)", Paths: []string{"~/.ollama/models"}, Cmds: [][]string{{"ollama", "list"}}, Tools: []Tool{{Name: "ollama", InstallCmd: "brew install ollama"}}},
 			{Name: "home-cache", Enabled: true, Notes: "Top-level ~/.cache subdirectories (informational only)", Paths: []string{"~/.cache/*"}, Cmds: [][]string{}, Tools: []Tool{}},
 			{Name: "pyenv", Enabled: true, Notes: "Pyenv installed versions and downloads (informational)", Paths: []string{"~/.pyenv/versions", "~/.pyenv/cache", "~/.pyenv/plugins/python-build/share/python-build/cache"}, Cmds: [][]string{}, Tools: []Tool{{Name: "pyenv", InstallCmd: "brew install pyenv", InstallNotes: "Remove unused versions with: pyenv uninstall <version>"}}},
 			{Name: "rustup", Enabled: true, Notes: "Rustup toolchains and targets (informational)", Paths: []string{"~/.rustup/toolchains", "~/.rustup/tmp", "~/.rustup/downloads"}, Cmds: [][]string{}, Tools: []Tool{{Name: "rustup", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh", InstallNotes: "List toolchains: rustup toolchain list; remove: rustup toolchain uninstall <name>"}}},
@@ -862,10 +863,10 @@ func main() {
         // Render summary table: Target | Used | Clean Commands
         fmt.Println("Summary (per target):")
         fmt.Println()
-        // Compute column widths
-        nameW := 6 // len("Target")
-        usedW := 4 // len("Used")
-        rows := make([][3]string, 0, len(list))
+        
+        table := tablewriter.NewWriter(os.Stdout)
+        table.Header("Target", "Used", "Clean Commands")
+        
         for _, e := range list {
             name := e.k
             used := human(int64(e.v))
@@ -909,17 +910,14 @@ func main() {
                 }
             }
             
-            if len(name) > nameW { nameW = len(name) }
-            if len(used) > usedW { usedW = len(used) }
-            rows = append(rows, [3]string{name, used, cmds})
+            if cmds == "" {
+                cmds = " "
+            }
+            
+            table.Append(name, used, cmds)
         }
-        // Headers
-        fmt.Printf("%-*s  %-*s  %s\n", nameW, "Target", usedW, "Used", "Clean Commands")
-        fmt.Printf("%-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), usedW, strings.Repeat("-", usedW), strings.Repeat("-", 50))
-        // Rows
-        for _, r := range rows {
-            fmt.Printf("%-*s  %-*s  %s\n", nameW, r[0], usedW, r[1], r[2])
-        }
+        
+        table.Render()
         fmt.Println()
     } else {
         for _, e := range list {
@@ -1022,10 +1020,9 @@ func main() {
                 targetMap[t.Name] = t
             }
             
-            nameW := 6
-            usedW := 4
-            freedW := 5
-            rows := make([][4]string, 0, len(list2))
+            table2 := tablewriter.NewWriter(os.Stdout)
+            table2.Header("Target", "Used", "Freed", "Clean Commands")
+            
             for _, e := range list2 {
                 name := e.k
                 used := human(int64(e.v))
@@ -1073,19 +1070,13 @@ func main() {
                 }
                 
                 if cmds == "" {
-                    cmds = "(no commands)"
+                    cmds = " "
                 }
                 
-                if len(name) > nameW { nameW = len(name) }
-                if len(used) > usedW { usedW = len(used) }
-                if len(freed) > freedW { freedW = len(freed) }
-                rows = append(rows, [4]string{name, used, freed, cmds})
+                table2.Append(name, used, freed, cmds)
             }
-            fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, "Target", usedW, "Used", freedW, "Freed", "Clean Commands")
-            fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), usedW, strings.Repeat("-", usedW), freedW, strings.Repeat("-", freedW), strings.Repeat("-", 50))
-            for _, r := range rows {
-                fmt.Printf("%-*s  %-*s  %-*s  %s\n", nameW, r[0], usedW, r[1], freedW, r[2], r[3])
-            }
+            
+            table2.Render()
             fmt.Println()
         } else {
             for _, e := range list2 {
