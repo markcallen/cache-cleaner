@@ -16,6 +16,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ----- Command whitelist -----
+
+// allowedCommandSubstitutions defines which commands are allowed to be executed
+// when expanding patterns like "$(command args)"
+var allowedCommandSubstitutions = map[string]func([]string) (string, error){
+	"brew": func(args []string) (string, error) {
+		if len(args) > 0 && args[0] == "--cache" {
+			if p, err := exec.LookPath("brew"); err == nil && p != "" {
+				out, err := exec.Command("brew", "--cache").Output()
+				if err == nil {
+					return strings.TrimSpace(string(out)), nil
+				}
+			}
+			// Fallback to default cache location
+			return expand("~/Library/Caches/Homebrew"), nil
+		}
+		return "", fmt.Errorf("unsupported brew argument: %v", args)
+	},
+}
+
 // ----- CLI flags -----
 var (
 	flagClean       = flag.Bool("clean", false, "Run safe CLI clean commands (default: dry-run)")
@@ -153,71 +173,43 @@ func inspectPath(root string) (Finding, error) {
 	return f, errWalk
 }
 
-// getTerraformCacheDir reads ~/.terraformrc or ~/.terraform.d/terraform.rc to get plugin_cache_dir, or returns default
-func getTerraformCacheDir() string {
-	// Check both possible locations for terraformrc
-	configPaths := []string{
-		expand("~/.terraformrc"),
-		expand("~/.terraform.d/terraform.rc"),
-	}
-	
-	var content []byte
-	var err error
-	for _, path := range configPaths {
-		content, err = os.ReadFile(path)
-		if err == nil {
-			break
-		}
-	}
-	
-	if err != nil {
-		// Neither file exists or can't be read, use default
-		return expand("~/.terraform.d/plugin-cache")
-	}
-	
-	// Parse HCL-style config to find plugin_cache_dir
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Skip comments and empty lines
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
-		}
-		// Match: plugin_cache_dir = "..."
-		if strings.HasPrefix(line, "plugin_cache_dir") {
-			// Try to extract value from quotes
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				value := strings.TrimSpace(parts[1])
-				// Remove quotes if present
-				value = strings.Trim(value, "\"'`")
-				// Expand any environment variables or ~
-				return expand(value)
-			}
-		}
-	}
-	
-	// Default if not found in config
-	return expand("~/.terraform.d/plugin-cache")
-}
-
 func expandGlobs(pattern string) ([]string, error) {
 	pattern = expand(pattern)
-	if strings.Contains(pattern, "$(brew --cache)") {
-		if p, err := exec.LookPath("brew"); err == nil && p != "" {
-			out, err := exec.Command("brew", "--cache").Output()
-			if err == nil {
-				pattern = strings.ReplaceAll(pattern, "$(brew --cache)", strings.TrimSpace(string(out)))
-			} else {
-				pattern = strings.ReplaceAll(pattern, "$(brew --cache)", "~/Library/Caches/Homebrew")
-			}
-		} else {
-			pattern = strings.ReplaceAll(pattern, "$(brew --cache)", "~/Library/Caches/Homebrew")
+	
+	// Find and replace $(command args) patterns
+	for {
+		start := strings.Index(pattern, "$(")
+		if start == -1 {
+			break
 		}
-	}
-	if strings.Contains(pattern, "$(terraform --plugin-cache)") {
-		terraformCacheDir := getTerraformCacheDir()
-		pattern = strings.ReplaceAll(pattern, "$(terraform --plugin-cache)", terraformCacheDir)
+		
+		end := strings.Index(pattern[start+2:], ")")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		
+		commandExpr := pattern[start+2 : end]
+		parts := strings.Fields(commandExpr)
+		if len(parts) == 0 {
+			pattern = pattern[:start] + pattern[end+1:]
+			continue
+		}
+		
+		cmd := parts[0]
+		args := parts[1:]
+		
+		handler, ok := allowedCommandSubstitutions[cmd]
+		if !ok {
+			return nil, fmt.Errorf("command '%s' is not in the whitelist of allowed commands", cmd)
+		}
+		
+		result, err := handler(args)
+		if err != nil {
+			return nil, fmt.Errorf("error executing '%s': %w", commandExpr, err)
+		}
+		
+		pattern = pattern[:start] + result + pattern[end+1:]
 	}
 	
 	// Check if pattern contains glob wildcards
@@ -266,7 +258,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "npm", Enabled: true, Notes: "npm cache", Paths: []string{"~/.npm"}, Cmds: [][]string{{"npm", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "npm", InstallCmd: "brew install node"}}},
 			{Name: "yarn", Enabled: true, Notes: "Global Yarn cache", Paths: []string{"~/Library/Caches/Yarn", "~/.yarn/cache"}, Cmds: [][]string{{"yarn", "cache", "clean"}}, Tools: []Tool{{Name: "yarn", InstallCmd: "brew install yarn"}}},
 			{Name: "pnpm", Enabled: true, Notes: "pnpm store and cache", Paths: []string{"~/.pnpm-store", "~/Library/Caches/pnpm"}, Cmds: [][]string{{"pnpm", "store", "prune"}}, Tools: []Tool{{Name: "pnpm", InstallCmd: "brew install pnpm"}}},
-			{Name: "node-versions", Enabled: true, Notes: "Node version managers (nvm, volta)", Paths: []string{"~/.nvm/versions/node", "~/.volta/tools/image/node"}, Cmds: [][]string{{"nvm", "cache", "clear"}, {"volta", "clean"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc", CheckPath: "~/.nvm/nvm.sh"}, {Name: "volta", InstallCmd: "curl https://get.volta.sh | bash"}}},
+			{Name: "node-versions", Enabled: true, Notes: "Node version manager (nvm)", Paths: []string{"~/.nvm/.cache"}, Cmds: [][]string{{"nvm", "cache", "clear"}}, Tools: []Tool{{Name: "nvm", InstallCmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash", InstallNotes: "After installation, restart your terminal or run: source ~/.bashrc or source ~/.zshrc", CheckPath: "~/.nvm/nvm.sh"}}},
 			{Name: "expo", Enabled: true, Notes: "Expo and React Native caches", Paths: []string{"~/.expo", "~/.cache/expo"}, Cmds: [][]string{{"expo", "start", "-c"}}, Tools: []Tool{{Name: "expo", InstallCmd: "npm install -g expo-cli"}}},
 			{Name: "go", Enabled: true, Notes: "Go build & module caches", Paths: []string{"~/Library/Caches/go-build", "$GOMODCACHE/cache", "$GOPATH/pkg/mod/cache"}, Cmds: [][]string{{"go", "clean", "-cache", "-testcache", "-modcache"}}, Tools: []Tool{{Name: "go", InstallCmd: "brew install go"}}},
 			{Name: "rust", Enabled: true, Notes: "Rust registry and build caches (requires cargo-cache: cargo install cargo-cache)", Paths: []string{"~/.cargo/registry", "~/.cargo/git"}, Cmds: [][]string{{"cargo", "cache", "-a"}}, Tools: []Tool{{Name: "cargo", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"}, {Name: "cargo-cache", InstallCmd: "cargo install cargo-cache", InstallNotes: "Install this after cargo is installed"}}},
@@ -286,7 +278,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "flutter", Enabled: true, Notes: "Flutter and Dart caches (pub, SDK, and analysis artifacts)", Paths: []string{"~/.pub-cache", "~/.dartServer", "~/Library/Developer/flutter", "~/Library/Caches/flutter"}, Cmds: [][]string{{"flutter", "pub", "cache", "clean", "--force"}}, Tools: []Tool{{Name: "flutter", InstallCmd: "Install Flutter manually", InstallNotes: "For installation instructions, visit: https://docs.flutter.dev/install/manual"}}},
 			{Name: "android", Enabled: true, Notes: "Android SDK and emulator caches", Paths: []string{"~/.android/cache", "~/.android/avd", "~/Library/Android/sdk"}, Cmds: [][]string{{"sdkmanager", "--update"}}},
 			{Name: "android-studio", Enabled: true, Notes: "Android Studio IDE caches, logs, and indexes", Paths: []string{"~/Library/Caches/Google/AndroidStudio*", "~/Library/Logs/Google/AndroidStudio*", "~/Library/Application Support/Google/AndroidStudio*/system/caches", "~/Library/Application Support/Google/AndroidStudio*/system/index"}, Cmds: [][]string{}},
-			{Name: "terraform", Enabled: true, Notes: "Terraform plugin cache (reads ~/.terraformrc for plugin_cache_dir, defaults to ~/.terraform.d/plugin-cache)", Paths: []string{"$(terraform --plugin-cache)"}, Cmds: [][]string{}, Tools: []Tool{{Name: "terraform", InstallCmd: "brew install terraform"}}},
+			{Name: "terraform", Enabled: true, Notes: "Terraform plugin cache", Paths: []string{"~/.terraform.d/plugin-cache/"}, Cmds: [][]string{}, Tools: []Tool{{Name: "terraform", InstallCmd: "brew install terraform"}}},
 			{Name: "packer", Enabled: true, Notes: "Packer plugins directory", Paths: []string{"~/.packer.d/plugins"}, Cmds: [][]string{}, Tools: []Tool{{Name: "packer", InstallCmd: "brew install packer"}}},
 			{Name: "ollama", Enabled: true, Notes: "Ollama models and cache (uses official prune)", Paths: []string{"~/.ollama", "~/.ollama/models"}, Cmds: [][]string{{"ollama", "prune"}}, Tools: []Tool{{Name: "ollama", InstallCmd: "brew install ollama"}}},
 			{Name: "home-cache", Enabled: true, Notes: "Top-level ~/.cache subdirectories (informational only)", Paths: []string{"~/.cache/*"}, Cmds: [][]string{}, Tools: []Tool{}},
@@ -324,7 +316,7 @@ func loadConfig(path string) (*Config, error) {
 
 // checkTool checks if a tool is installed and in PATH
 func checkTool(tool Tool) (bool, string, error) {
-	// If CheckPath is specified, check for file existence instead of PATH
+	// If CheckPath is specified, check for file existence instead of PATH.nvm/.cache
 	if tool.CheckPath != "" {
 		checkPath := expand(tool.CheckPath)
 		if _, err := os.Stat(checkPath); err == nil {
