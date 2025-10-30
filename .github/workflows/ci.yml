@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    name: Lint, Format, Test, Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting (gofmt)
+        run: |
+          fmt_out=$(gofmt -s -l . | tr -d '\n')
+          if [ -n "$fmt_out" ]; then
+            echo "The following files are not gofmt-ed:" >&2
+            gofmt -s -l . >&2
+            exit 1
+          fi
+
+      - name: Verify module files are tidy
+        run: |
+          go mod tidy
+          # Fail if go.mod/go.sum changed
+          git diff --exit-code -- go.mod go.sum || {
+            echo "go.mod/go.sum not tidy. Run 'go mod tidy' locally." >&2
+            exit 1
+          }
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # Use a recent stable golangci-lint; action manages caching
+          version: latest
+          args: --timeout=5m --tests
+
+      - name: Test
+        run: go test ./... -covermode=atomic -coverprofile build/coverage.out
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            build/coverage.out
+            build/coverage.html
+          if-no-files-found: ignore
+
+      - name: Build
+        run: |
+          mkdir -p build
+          go build -v -o build/mac-cache-cleaner ./
