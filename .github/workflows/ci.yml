@@ -62,7 +62,6 @@ jobs:
           name: coverage
           path: |
             build/coverage.out
-            build/coverage.html
           if-no-files-found: ignore
 
       - name: Build
