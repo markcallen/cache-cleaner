@@ -419,7 +419,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "pyenv", Enabled: true, Notes: "Pyenv installed versions and downloads (informational)", Paths: []string{"~/.pyenv/versions", "~/.pyenv/cache", "~/.pyenv/plugins/python-build/share/python-build/cache"}, Cmds: [][]string{}, Tools: []Tool{{Name: "pyenv", InstallCmd: "brew install pyenv", InstallNotes: "Remove unused versions with: pyenv uninstall <version>"}}},
 			{Name: "rustup", Enabled: true, Notes: "Rustup toolchains and targets (informational)", Paths: []string{"~/.rustup/toolchains", "~/.rustup/tmp", "~/.rustup/downloads"}, Cmds: [][]string{}, Tools: []Tool{{Name: "rustup", InstallCmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh", InstallNotes: "List toolchains: rustup toolchain list; remove: rustup toolchain uninstall <name>"}}},
 			{Name: "vscode-extensions", Enabled: true, Notes: "VS Code extensions and data under ~/.vscode (informational)", Paths: []string{"~/.vscode"}, Cmds: [][]string{}, Tools: []Tool{}},
-			{Name: "rvm", Enabled: true, Notes: "RVM installed rubies and archives (informational)", Paths: []string{"~/.rvm/rubies", "~/.rvm/archives", "~/.rvm/src"}, Cmds: [][]string{}, Tools: []Tool{{Name: "rvm", InstallCmd: "\\curl -sSL https://get.rvm.io | bash", InstallNotes: "List rubies: rvm list; remove: rvm remove <ruby>"}}},
+			{Name: "rvm", Enabled: true, Notes: "RVM installed rubies and archives (informational)", Paths: []string{"~/.rvm/rubies", "~/.rvm/archives", "~/.rvm/src"}, Cmds: [][]string{{"rvm", "cleanup", "all"}}, Tools: []Tool{{Name: "rvm", InstallCmd: "curl -sSL https://get.rvm.io | bash", InstallNotes: "List rubies: rvm list; remove: rvm remove <ruby>"}}},
 			{Name: "dropbox", Enabled: true, Notes: "Dropbox metadata and state (informational only; no safe CLI clean)", Paths: []string{"~/.dropbox"}, Cmds: [][]string{}, Tools: []Tool{}},
 			{Name: "cursor", Enabled: true, Notes: "Cursor editor state and cache (informational)", Paths: []string{"~/.cursor"}, Cmds: [][]string{}, Tools: []Tool{}},
 		},
@@ -1013,15 +1013,9 @@ func main() {
         fmt.Println()
         if !*flagDetails {
             // Summary view after cleanup
-            // Render summary table: Target | Used | Freed | Clean Commands
-            // Create a map for quick target lookup (if not already created earlier)
-            targetMap := make(map[string]Target)
-            for _, t := range targets {
-                targetMap[t.Name] = t
-            }
-            
+            // Render summary table: Target | Used | Freed
             table2 := tablewriter.NewWriter(os.Stdout)
-            table2.Header("Target", "Used", "Freed", "Clean Commands")
+            table2.Header("Target", "Used", "Freed")
             
             for _, e := range list2 {
                 name := e.k
@@ -1029,51 +1023,7 @@ func main() {
                 freed := "-"
                 if fs := freedSpace[e.k]; fs > 0 { freed = human(fs) }
                 
-                // Build commands string - only show commands for installed tools
-                cmds := ""
-                target, foundTarget := targetMap[name]
-                missingTools := []string{}
-                
-                // Check for missing required tools
-                if foundTarget && len(target.Tools) > 0 {
-                    for _, tool := range target.Tools {
-                        installed, _, _ := checkTool(tool)
-                        if !installed {
-                            missingTools = append(missingTools, tool.Name)
-                        }
-                    }
-                }
-                
-                if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
-                    parts := make([]string, 0, len(cr))
-                    for _, c := range cr {
-                        // Only include commands where the tool is found
-                        if c.Found {
-                            parts = append(parts, strings.Join(c.Cmd, " "))
-                        }
-                    }
-                    if len(parts) > 0 {
-                        cmds = strings.Join(parts, " && ")
-                    }
-                }
-                
-                // If there are missing tools, add a message about them
-                if len(missingTools) > 0 {
-                    if cmds != "" {
-                        cmds += " && "
-                    }
-                    if len(missingTools) == 1 {
-                        cmds += fmt.Sprintf("(tool '%s' needs to be installed)", missingTools[0])
-                    } else {
-                        cmds += fmt.Sprintf("(tools '%s' need to be installed)", strings.Join(missingTools, "', '"))
-                    }
-                }
-                
-                if cmds == "" {
-                    cmds = " "
-                }
-                
-                table2.Append(name, used, freed, cmds)
+                table2.Append(name, used, freed)
             }
             
             table2.Render()
