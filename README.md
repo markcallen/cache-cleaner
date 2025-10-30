@@ -11,6 +11,8 @@ Go CLI for macOS that reclaims disk space by running **safe, official cleanup co
 - JSON output for automation
 - `--init` to scaffold a starter config
 - Flexible output: summary mode (default) or detailed per-directory breakdown (`--details`)
+ - Docker usage measured via `docker system df` (no direct file deletions)
+ - Safe path expansion with whitelist-only command substitutions
 
 ## Output Modes
 
@@ -41,6 +43,14 @@ Use `--details` to see per-directory breakdowns:
 | `--check-tools` | Check if required tools are installed and exit |
 | `--docker-prune` | Add docker prune commands at runtime |
 
+### JSON Mode Behavior
+- When `--json` is provided, the app outputs the initial scan (totals, findings, warnings) as JSON and exits. Cleanup is not performed even if `--clean` is also set.
+
+```bash
+# Example: JSON output (initial scan only)
+./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json > scan.json
+```
+
 ## Quick start
 ```bash
 make build
@@ -55,6 +65,26 @@ make build
 ```
 
 ## Configuration
+
+### Supported Targets
+
+The starter config includes many common targets:
+
+- docker, brew, npm, yarn, pnpm, node-versions, expo, go, rust, python, conda,
+  maven, gradle, xcode, ruby, php, dotnet, vscode, jetbrains, build-tools,
+  chrome (informational), macos (advanced, disabled by default), flutter,
+  android, android-studio, terraform, packer, ollama, home-cache, pyenv,
+  rustup, vscode-extensions, rvm, dropbox, cursor.
+
+Use `--list-targets` to see which are enabled in your current config.
+
+```bash
+# List all targets with status and notes
+./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --list-targets
+
+# Check tools required by selected targets only
+./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --check-tools --targets docker,go
+```
 
 ### Config File Structure
 
@@ -73,7 +103,7 @@ targets:
     paths:
       - "~/Library/Caches/docker/*"
       - "~/Library/Caches/buildx/*"
-      - "$(brew --cache)/*"  # Dynamic brew cache path
+      - "$(brew --cache)/*"  # Dynamic brew cache path (whitelisted substitution)
     
     # Commands to run when --clean is used
     cmds:
@@ -136,6 +166,7 @@ When a tool is missing, the app will:
 - Show a warning with installation instructions
 - Mark related commands as "not found"
 - Provide the install command (defaults to brew if available)
+ - In summary output, only show clean commands for tools that are installed; otherwise a note indicates missing tools
 
 ### Check Tool Status
 
@@ -158,3 +189,14 @@ This will:
 ## Notes
 - Chrome is informational only (no stable CLI for cache clear).
 - Enable Docker prunes via config `dockerPruneByDefault: true` or `--docker-prune`.
+ - Docker usage is measured via `docker system df` (JSON/template parsing). We do not directly read Docker.raw or delete files.
+ - Command substitutions inside paths are whitelist-only. Currently only `$(brew --cache)` is supported for safety; others are rejected.
+
+## License
+
+See [LICENSE](./LICENSE).
+
+## Contact
+
+- Creator: **Mark C Allen** (`@markcallen`)
+- Questions or issues: open an issue in this repository.

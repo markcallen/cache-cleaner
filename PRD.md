@@ -71,12 +71,23 @@ targets:
 - **flutter** - Flutter and Dart caches
 - **android** - Android SDK and emulator caches
 - **android-studio** - Android Studio IDE caches
+ - **terraform** - Terraform plugin cache
+ - **packer** - Packer plugins directory
+ - **ollama** - Ollama models and cache (uses official prune)
+ - **home-cache** - Top-level ~/.cache subdirectories (informational only)
+ - **pyenv** - Pyenv installed versions and downloads (informational)
+ - **rustup** - Rustup toolchains and targets (informational)
+ - **vscode-extensions** - VS Code extensions and data under ~/.vscode (informational)
+ - **rvm** - RVM installed rubies and archives (informational/has cleanup)
+ - **dropbox** - Dropbox metadata and state (informational only)
+ - **cursor** - Cursor editor state and cache (informational)
 
 ### Path Expansion
 - Supports `~` for home directory
 - Expands environment variables (`$VAR`)
 - Supports `$(brew --cache)` expansion
 - Glob patterns for flexible matching
+ - Command substitutions are whitelist-only for safety; currently only `brew --cache` is supported. Other substitutions (e.g., `$(docker ...)`) are rejected.
 
 ### Reporting Features
 - Size measurement in bytes with human-readable output
@@ -87,6 +98,7 @@ targets:
 - Warnings for glob errors
 - Before/after comparison when `--clean` is used
 - Total space freed calculation
+ - Docker usage is measured via `docker system df` (JSON/template parsing), not by reading `Docker.raw` directly
 
 ## Behavior
 1. **Dry-run by default** - Reports sizes without making changes
@@ -102,7 +114,7 @@ targets:
 - Before executing commands, the app checks if required tools (specified in `tools` array) are installed
 - If a tool is missing, a warning is shown with installation guidance
 - Installation commands default to `brew install` if Homebrew is available
-- Version checking: If a version is specified, the app verifies the tool meets the minimum version requirement
+- Version checking: When a version is specified, the app performs a basic `--version` contains check to verify presence; it does not perform full semantic version comparison
 - Commands are marked as "not found" when their prerequisite tools are missing
 - Custom path checking: If `checkPath` is specified, the app checks for the existence of that file instead of using PATH lookup
 - Tool status is displayed with ✓ for installed tools and ✗ for missing tools
@@ -121,6 +133,9 @@ The `--list-targets` flag shows all available targets:
 - Shows [ENABLED] or [DISABLED] status for each target
 - Displays notes for each target
 - Useful for discovering available cleanup options
+
+### JSON Mode Behavior
+- When `--json` is provided, the app outputs the initial scan results (including totals and warnings) and exits. Cleanup is not performed even if `--clean` is also set.
 
 ## Out of scope
 - Windows/Linux paths (future)
