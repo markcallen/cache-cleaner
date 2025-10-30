@@ -51,7 +51,9 @@ jobs:
           args: --timeout=5m --tests
 
       - name: Test
-        run: go test ./... -covermode=atomic -coverprofile build/coverage.out
+        run: |
+          mkdir -p build
+          go test ./... -covermode=atomic -coverprofile build/coverage.out
 
       - name: Upload coverage report
         if: always()
