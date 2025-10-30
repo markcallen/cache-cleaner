@@ -64,6 +64,58 @@ make build
 ./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json  # output as JSON
 ```
 
+## Development
+
+### Prereqs
+- Go 1.22+
+- Optional (recommended) linter: `golangci-lint`
+  - Install via Makefile: `make install`
+
+### Run locally
+```bash
+# Using the Makefile build + run
+make build
+make run
+
+# Or run without building a binary
+go run ./main.go --help
+```
+
+### Debug locally
+- Install Delve (debugger): `brew install delve`
+- Option 1: build and debug the binary
+```bash
+make build
+dlv exec ./build/mac-cache-cleaner -- --help
+```
+- Option 2: debug without a separate build step
+```bash
+dlv debug ./... -- --help
+```
+
+### Pre-commit checklist
+Run formatting, linting, vet, and tests (if/when added) before committing:
+```bash
+make fmt
+make lint
+make vet
+make build
+```
+
+Optional: lightweight pre-commit hook
+```bash
+cat > .git/hooks/pre-commit << 'EOF'
+#!/bin/sh
+set -e
+echo "Running fmt/lint/vet/build..."
+make fmt
+make lint
+make vet
+make build
+EOF
+chmod +x .git/hooks/pre-commit
+```
+
 ## Configuration
 
 ### Supported Targets
@@ -98,18 +150,18 @@ targets:
   - name: docker              # Target identifier
     enabled: true             # Enable/disable this target
     notes: "Docker caches and images (safe CLI prune only)"  # Optional description
-    
+
     # Paths to measure for size (supports glob patterns and ~ expansion)
     paths:
       - "~/Library/Caches/docker/*"
       - "~/Library/Caches/buildx/*"
       - "$(brew --cache)/*"  # Dynamic brew cache path (whitelisted substitution)
-    
+
     # Commands to run when --clean is used
     cmds:
       - ["docker", "builder", "prune", "-af"]
       - ["docker", "system", "prune", "-af", "--volumes"]
-    
+
     # Required tools for this target
     tools:
       - name: docker                                    # Tool name to check in PATH

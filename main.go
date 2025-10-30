@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 
-	"gopkg.in/yaml.v3"
 	"github.com/olekukonko/tablewriter"
+	"gopkg.in/yaml.v3"
 )
 
 // ----- Command whitelist -----
@@ -70,8 +70,8 @@ type Options struct {
 }
 
 type Tool struct {
-	Name         string `yaml:"name"`          // tool name (e.g., "docker", "npm")
-	Version      string `yaml:"version"`       // minimum required version (optional)
+	Name         string `yaml:"name"`         // tool name (e.g., "docker", "npm")
+	Version      string `yaml:"version"`      // minimum required version (optional)
 	InstallCmd   string `yaml:"installCmd"`   // installation command (defaults to brew if tool exists in brew)
 	InstallNotes string `yaml:"installNotes"` // optional installation notes
 	CheckPath    string `yaml:"checkPath"`    // optional file path to check for existence instead of using PATH
@@ -81,9 +81,9 @@ type Target struct {
 	Name    string     `yaml:"name"`
 	Enabled bool       `yaml:"enabled"`
 	Notes   string     `yaml:"notes"`
-	Paths   []string   `yaml:"paths"`         // measured for size only
-	Cmds    [][]string `yaml:"cmds"`          // commands to run when --clean is set
-	Tools   []Tool     `yaml:"tools"`         // required tools for this target
+	Paths   []string   `yaml:"paths"` // measured for size only
+	Cmds    [][]string `yaml:"cmds"`  // commands to run when --clean is set
+	Tools   []Tool     `yaml:"tools"` // required tools for this target
 }
 
 // ----- Report types -----
@@ -103,15 +103,15 @@ type Finding struct {
 }
 
 type Report struct {
-	Hostname string                       `json:"hostname"`
-	OS       string                       `json:"os"`
-	Arch     string                       `json:"arch"`
-	DryRun   bool                         `json:"dry_run"`
-	When     time.Time                    `json:"when"`
-	Totals   map[string]uint64            `json:"totals_by_target_bytes"`
-	Findings map[string][]Finding         `json:"findings"`
-	Commands map[string][]CmdResult       `json:"commands"`
-	Warnings []string                     `json:"warnings"`
+	Hostname string                 `json:"hostname"`
+	OS       string                 `json:"os"`
+	Arch     string                 `json:"arch"`
+	DryRun   bool                   `json:"dry_run"`
+	When     time.Time              `json:"when"`
+	Totals   map[string]uint64      `json:"totals_by_target_bytes"`
+	Findings map[string][]Finding   `json:"findings"`
+	Commands map[string][]CmdResult `json:"commands"`
+	Warnings []string               `json:"warnings"`
 }
 
 // ----- Utilities -----
@@ -126,7 +126,7 @@ func defaultConfigPath() string {
 
 func ensureDir(p string) error { return os.MkdirAll(filepath.Dir(p), 0o755) }
 
-func home() string { h, _ := os.UserHomeDir(); return h }
+func home() string           { h, _ := os.UserHomeDir(); return h }
 func expand(p string) string { return os.ExpandEnv(strings.ReplaceAll(p, "~", home())) }
 
 func human(n int64) string {
@@ -146,129 +146,151 @@ func human(n int64) string {
 
 // parseHumanSize converts strings like "12.3GB", "456 MB", "78.9kB", "1024 B" into bytes
 func parseHumanSize(s string) (int64, bool) {
- 	s = strings.TrimSpace(s)
- 	// remove any trailing percentage or parenthetical text like "(40%)"
- 	if i := strings.IndexByte(s, '('); i != -1 {
- 		s = strings.TrimSpace(s[:i])
- 	}
- 	// remove commas and extra spaces
- 	s = strings.ReplaceAll(s, ",", "")
- 	parts := strings.Fields(s)
- 	if len(parts) == 0 {
- 		return 0, false
- 	}
- 	val := parts[0]
- 	unit := "B"
- 	if len(parts) > 1 {
- 		unit = parts[1]
- 	} else {
- 		// If unit is appended without space, split trailing letters
- 		i := len(val) - 1
- 		for i >= 0 && ((val[i] >= 'A' && val[i] <= 'Z') || (val[i] >= 'a' && val[i] <= 'z')) {
- 			i--
- 		}
- 		if i >= 0 && i < len(val)-1 {
- 			unit = val[i+1:]
- 			val = val[:i+1]
- 		}
- 	}
- 	v, err := strconv.ParseFloat(val, 64)
- 	if err != nil {
- 		return 0, false
- 	}
- 	switch strings.ToUpper(unit) {
- 	case "B":
- 		return int64(v), true
- 	case "KB", "KIB", "K":
- 		return int64(v * 1024), true
- 	case "MB", "MIB", "M":
- 		return int64(v * 1024 * 1024), true
- 	case "GB", "GIB", "G":
- 		return int64(v * 1024 * 1024 * 1024), true
- 	case "TB", "TIB", "T":
- 		return int64(v * 1024 * 1024 * 1024 * 1024), true
- 	default:
- 		return 0, false
- 	}
+	s = strings.TrimSpace(s)
+	// remove any trailing percentage or parenthetical text like "(40%)"
+	if i := strings.IndexByte(s, '('); i != -1 {
+		s = strings.TrimSpace(s[:i])
+	}
+	// remove commas and extra spaces
+	s = strings.ReplaceAll(s, ",", "")
+	parts := strings.Fields(s)
+	if len(parts) == 0 {
+		return 0, false
+	}
+	val := parts[0]
+	unit := "B"
+	if len(parts) > 1 {
+		unit = parts[1]
+	} else {
+		// If unit is appended without space, split trailing letters
+		i := len(val) - 1
+		for i >= 0 && ((val[i] >= 'A' && val[i] <= 'Z') || (val[i] >= 'a' && val[i] <= 'z')) {
+			i--
+		}
+		if i >= 0 && i < len(val)-1 {
+			unit = val[i+1:]
+			val = val[:i+1]
+		}
+	}
+	v, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return 0, false
+	}
+	switch strings.ToUpper(unit) {
+	case "B":
+		return int64(v), true
+	case "KB", "KIB", "K":
+		return int64(v * 1024), true
+	case "MB", "MIB", "M":
+		return int64(v * 1024 * 1024), true
+	case "GB", "GIB", "G":
+		return int64(v * 1024 * 1024 * 1024), true
+	case "TB", "TIB", "T":
+		return int64(v * 1024 * 1024 * 1024 * 1024), true
+	default:
+		return 0, false
+	}
 }
 
 // dockerSystemDF gathers Docker disk usage via `docker system df` and returns findings and total bytes
 func dockerSystemDF() ([]Finding, int64, error) {
- 	// Prefer JSON output; fallback to line-delimited json template if necessary
- 	tryTemplate := func() ([]Finding, int64, error) {
- 		c := exec.Command("docker", "system", "df", "--format", "{{json .}}")
- 		out, err := c.Output()
- 		if err != nil {
- 			return nil, 0, err
- 		}
- 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
- 		var findings []Finding
- 		var total int64
- 		for _, ln := range lines {
- 			ln = strings.TrimSpace(ln)
- 			if ln == "" { continue }
- 			var row map[string]any
- 			if err := json.Unmarshal([]byte(ln), &row); err != nil {
- 				continue
- 			}
- 			typ, _ := row["Type"].(string)
- 			if typ == "" {
- 				if t2, ok := row["type"].(string); ok { typ = t2 }
- 			}
- 			items := 0
- 			if tc, ok := row["TotalCount"].(float64); ok { items = int(tc) }
- 			if tc, ok := row["totalCount"].(float64); ok { items = int(tc) }
- 			sizeBytes := int64(0)
- 			if sb, ok := row["SizeBytes"].(float64); ok { sizeBytes = int64(sb) }
- 			if sizeBytes == 0 {
- 				if sz, ok := row["Size"].(string); ok {
- 					if b, ok := parseHumanSize(sz); ok { sizeBytes = b }
- 				}
- 			}
- 			f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
- 			findings = append(findings, f)
- 			total += sizeBytes
- 		}
- 		return findings, total, nil
- 	}
+	// Prefer JSON output; fallback to line-delimited json template if necessary
+	tryTemplate := func() ([]Finding, int64, error) {
+		c := exec.Command("docker", "system", "df", "--format", "{{json .}}")
+		out, err := c.Output()
+		if err != nil {
+			return nil, 0, err
+		}
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		var findings []Finding
+		var total int64
+		for _, ln := range lines {
+			ln = strings.TrimSpace(ln)
+			if ln == "" {
+				continue
+			}
+			var row map[string]any
+			if err := json.Unmarshal([]byte(ln), &row); err != nil {
+				continue
+			}
+			typ, _ := row["Type"].(string)
+			if typ == "" {
+				if t2, ok := row["type"].(string); ok {
+					typ = t2
+				}
+			}
+			items := 0
+			if tc, ok := row["TotalCount"].(float64); ok {
+				items = int(tc)
+			}
+			if tc, ok := row["totalCount"].(float64); ok {
+				items = int(tc)
+			}
+			sizeBytes := int64(0)
+			if sb, ok := row["SizeBytes"].(float64); ok {
+				sizeBytes = int64(sb)
+			}
+			if sizeBytes == 0 {
+				if sz, ok := row["Size"].(string); ok {
+					if b, ok := parseHumanSize(sz); ok {
+						sizeBytes = b
+					}
+				}
+			}
+			f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
+			findings = append(findings, f)
+			total += sizeBytes
+		}
+		return findings, total, nil
+	}
 
- 	// First attempt: native JSON if supported
- 	c := exec.Command("docker", "system", "df", "--format", "json")
- 	out, err := c.Output()
- 	if err == nil {
- 		// Try to parse as either array or object with arrays
- 		clean := strings.TrimSpace(string(out))
- 		var findings []Finding
- 		var total int64
- 		if strings.HasPrefix(clean, "[") {
- 			var rows []map[string]any
- 			if e := json.Unmarshal([]byte(clean), &rows); e == nil {
- 				for _, row := range rows {
- 					typ, _ := row["Type"].(string)
- 					if typ == "" {
- 						if t2, ok := row["type"].(string); ok { typ = t2 }
- 					}
- 					items := 0
- 					if tc, ok := row["TotalCount"].(float64); ok { items = int(tc) }
- 					if tc, ok := row["totalCount"].(float64); ok { items = int(tc) }
- 					sizeBytes := int64(0)
- 					if sb, ok := row["SizeBytes"].(float64); ok { sizeBytes = int64(sb) }
- 					if sizeBytes == 0 {
- 						if sz, ok := row["Size"].(string); ok {
- 							if b, ok := parseHumanSize(sz); ok { sizeBytes = b }
- 						}
- 					}
- 					f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
- 					findings = append(findings, f)
- 					total += sizeBytes
- 				}
- 				return findings, total, nil
- 			}
- 		}
- 		// If not array, fall through to template parsing
- 	}
- 	// Fallback
- 	return tryTemplate()
+	// First attempt: native JSON if supported
+	c := exec.Command("docker", "system", "df", "--format", "json")
+	out, err := c.Output()
+	if err == nil {
+		// Try to parse as either array or object with arrays
+		clean := strings.TrimSpace(string(out))
+		var findings []Finding
+		var total int64
+		if strings.HasPrefix(clean, "[") {
+			var rows []map[string]any
+			if e := json.Unmarshal([]byte(clean), &rows); e == nil {
+				for _, row := range rows {
+					typ, _ := row["Type"].(string)
+					if typ == "" {
+						if t2, ok := row["type"].(string); ok {
+							typ = t2
+						}
+					}
+					items := 0
+					if tc, ok := row["TotalCount"].(float64); ok {
+						items = int(tc)
+					}
+					if tc, ok := row["totalCount"].(float64); ok {
+						items = int(tc)
+					}
+					sizeBytes := int64(0)
+					if sb, ok := row["SizeBytes"].(float64); ok {
+						sizeBytes = int64(sb)
+					}
+					if sizeBytes == 0 {
+						if sz, ok := row["Size"].(string); ok {
+							if b, ok := parseHumanSize(sz); ok {
+								sizeBytes = b
+							}
+						}
+					}
+					f := Finding{Path: "docker:" + strings.ToLower(typ), SizeBytes: sizeBytes, Items: items}
+					findings = append(findings, f)
+					total += sizeBytes
+				}
+				return findings, total, nil
+			}
+		}
+		// If not array, fall through to template parsing
+	}
+	// Fallback
+	return tryTemplate()
 }
 
 func inspectPath(root string) (Finding, error) {
@@ -309,46 +331,46 @@ func inspectPath(root string) (Finding, error) {
 
 func expandGlobs(pattern string) ([]string, error) {
 	pattern = expand(pattern)
-	
+
 	// Find and replace $(command args) patterns
 	for {
 		start := strings.Index(pattern, "$(")
 		if start == -1 {
 			break
 		}
-		
+
 		end := strings.Index(pattern[start+2:], ")")
 		if end == -1 {
 			break
 		}
 		end += start + 2
-		
+
 		commandExpr := pattern[start+2 : end]
 		parts := strings.Fields(commandExpr)
 		if len(parts) == 0 {
 			pattern = pattern[:start] + pattern[end+1:]
 			continue
 		}
-		
+
 		cmd := parts[0]
 		args := parts[1:]
-		
+
 		handler, ok := allowedCommandSubstitutions[cmd]
 		if !ok {
 			return nil, fmt.Errorf("command '%s' is not in the whitelist of allowed commands", cmd)
 		}
-		
+
 		result, err := handler(args)
 		if err != nil {
 			return nil, fmt.Errorf("error executing '%s': %w", commandExpr, err)
 		}
-		
+
 		pattern = pattern[:start] + result + pattern[end+1:]
 	}
-	
+
 	// Check if pattern contains glob wildcards
 	hasWildcards := strings.Contains(pattern, "*") || strings.Contains(pattern, "?") || strings.Contains(pattern, "[")
-	
+
 	if !hasWildcards {
 		// No wildcards - check if path exists
 		if _, err := os.Stat(pattern); err == nil {
@@ -358,7 +380,7 @@ func expandGlobs(pattern string) ([]string, error) {
 		// Path doesn't exist - return empty (will be handled as error by caller)
 		return []string{}, nil
 	}
-	
+
 	// Has wildcards - use glob expansion
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -382,7 +404,7 @@ func writeStarterConfig(path string, force bool) error {
 		}
 		fmt.Printf("Existing config backed up to: %s\n", backupPath)
 	}
-	
+
 	starter := Config{
 		Version: 1,
 		Options: Options{DockerPruneByDefault: false},
@@ -458,7 +480,7 @@ func checkTool(tool Tool) (bool, string, error) {
 		}
 		return false, "", nil
 	}
-	
+
 	// Check if tool is in PATH
 	path, err := exec.LookPath(tool.Name)
 	if err != nil {
@@ -525,24 +547,24 @@ func runCmd(cmd []string) CmdResult {
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	
+
 	// Create a pipe to write to stdin
 	stdin, err := c.StdinPipe()
 	if err != nil {
 		res.Error = fmt.Sprintf("stdin pipe error: %v", err)
 		return res
 	}
-	
+
 	// Start the command
 	if err := c.Start(); err != nil {
 		res.Error = err.Error()
 		return res
 	}
-	
+
 	// Send 'y' to confirm any interactive prompts
 	_, _ = stdin.Write([]byte("y\n"))
 	stdin.Close()
-	
+
 	// Wait for the command to complete
 	if err := c.Wait(); err != nil {
 		res.Error = err.Error()
@@ -560,10 +582,10 @@ func checkTools(cfg *Config) {
 			sel[s] = true
 		}
 	}
-	
+
 	// Collect all unique tools from selected targets
 	toolMap := make(map[string]map[string]bool) // tool name -> map[targetName]bool
-	
+
 	for _, target := range cfg.Targets {
 		if !target.Enabled {
 			continue
@@ -579,14 +601,14 @@ func checkTools(cfg *Config) {
 			toolMap[tool.Name][target.Name] = true
 		}
 	}
-	
+
 	if len(toolMap) == 0 {
 		fmt.Println("No tool requirements defined in targets.")
 		return
 	}
-	
+
 	fmt.Printf("Tool Status Check (config: %s)\n\n", *flagConfig)
-	
+
 	var allOK = true
 	// Sort tool names for consistent output
 	var sortedNames []string
@@ -594,7 +616,7 @@ func checkTools(cfg *Config) {
 		sortedNames = append(sortedNames, name)
 	}
 	sort.Strings(sortedNames)
-	
+
 	for _, name := range sortedNames {
 		// Find the first occurrence of this tool to get its config
 		tool := Tool{Name: name}
@@ -611,14 +633,14 @@ func checkTools(cfg *Config) {
 				break
 			}
 		}
-		
+
 		installed, info, err := checkTool(tool)
 		targets := make([]string, 0, len(toolMap[name]))
 		for t := range toolMap[name] {
 			targets = append(targets, t)
 		}
 		sort.Strings(targets)
-		
+
 		if installed {
 			versionInfo := ""
 			if info != "" && !strings.Contains(info, "/") {
@@ -642,7 +664,7 @@ func checkTools(cfg *Config) {
 		}
 		fmt.Println()
 	}
-	
+
 	if allOK {
 		fmt.Println("All required tools are installed!")
 		os.Exit(0)
@@ -656,8 +678,8 @@ func checkTools(cfg *Config) {
 
 func main() {
 	flag.Parse()
-    // Detect if no command-line args were provided (program name only)
-    noArgs := len(os.Args) == 1
+	// Detect if no command-line args were provided (program name only)
+	noArgs := len(os.Args) == 1
 	if *flagListTargets {
 		cfg, err := loadConfig(*flagConfig)
 		if err != nil {
@@ -688,14 +710,14 @@ func main() {
 		fmt.Println("Starter config written to:", *flagConfig)
 		return
 	}
-	
+
 	cfg, err := loadConfig(*flagConfig)
 	if err != nil {
 		fmt.Println("config error:", err)
 		fmt.Println("Tip: run with --init to create a starter config")
 		os.Exit(1)
 	}
-	
+
 	if *flagCheckTools {
 		checkTools(cfg)
 		return
@@ -774,7 +796,7 @@ func main() {
 		fmt.Printf(" done (%s)\n", human(sum))
 	}
 
-    // output initial results
+	// output initial results
 	if *flagJSON {
 		// For JSON mode, store the before totals in the report
 		rep.Totals = beforeTotals
@@ -814,12 +836,12 @@ func main() {
 		if len(t.Cmds) == 0 {
 			continue
 		}
-		
+
 		// Populate commands with their found status
 		for _, c := range t.Cmds {
 			found := false
 			errorMsg := ""
-			
+
 			if len(c) > 0 {
 				if installed, ok := toolStatus[c[0]]; ok {
 					found = installed
@@ -834,7 +856,7 @@ func main() {
 					}
 				}
 			}
-			
+
 			rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
 				Cmd:   c,
 				Found: found,
@@ -843,106 +865,117 @@ func main() {
 		}
 	}
 
-    // Show initial scan results (summary by default; detailed with --details)
-    type kv struct{ k string; v uint64 }
-    var list []kv
-    for k, v := range beforeTotals {
-        list = append(list, kv{k, v})
-    }
-    sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
+	// Show initial scan results (summary by default; detailed with --details)
+	type kv struct {
+		k string
+		v uint64
+	}
+	var list []kv
+	for k, v := range beforeTotals {
+		list = append(list, kv{k, v})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
 
-    showDetails := *flagDetails || (!noArgs && *flagDetails)
-    // If no args at all, force summary view (ignore --details which isn't set anyway)
-    if !showDetails {
-        // Create a map for quick target lookup
-        targetMap := make(map[string]Target)
-        for _, t := range targets {
-            targetMap[t.Name] = t
-        }
-        
-        // Render summary table: Target | Used | Clean Commands
-        fmt.Println("Summary (per target):")
-        fmt.Println()
-        
-        table := tablewriter.NewWriter(os.Stdout)
-        table.Header("Target", "Used", "Clean Commands")
-        
-        for _, e := range list {
-            name := e.k
-            used := human(int64(e.v))
-            // Build commands string - only show commands for installed tools
-            cmds := ""
-            target, foundTarget := targetMap[name]
-            missingTools := []string{}
-            
-            // Check for missing required tools
-            if foundTarget && len(target.Tools) > 0 {
-                for _, tool := range target.Tools {
-                    installed, _, _ := checkTool(tool)
-                    if !installed {
-                        missingTools = append(missingTools, tool.Name)
-                    }
-                }
-            }
-            
-            if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
-                parts := make([]string, 0, len(cr))
-                for _, c := range cr {
-                    // Only include commands where the tool is found
-                    if c.Found {
-                        parts = append(parts, strings.Join(c.Cmd, " "))
-                    }
-                }
-                if len(parts) > 0 {
-                    cmds = strings.Join(parts, " && ")
-                }
-            }
-            
-            // If there are missing tools, add a message about them
-            if len(missingTools) > 0 {
-                if cmds != "" {
-                    cmds += " && "
-                }
-                if len(missingTools) == 1 {
-                    cmds += fmt.Sprintf("(tool '%s' needs to be installed)", missingTools[0])
-                } else {
-                    cmds += fmt.Sprintf("(tools '%s' need to be installed)", strings.Join(missingTools, "', '"))
-                }
-            }
-            
-            if cmds == "" {
-                cmds = " "
-            }
-            
-            table.Append(name, used, cmds)
-        }
-        
-        table.Render()
-        fmt.Println()
-    } else {
-        for _, e := range list {
-            fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
-            // Show individual directories (detailed)
-            findings := rep.Findings[e.k]
-            sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
-            for _, f := range findings {
-                if f.Err == "" {
-                    fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
-                }
-            }
-            if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
-                fmt.Println("  Commands:")
-                for _, c := range cr {
-                    found := "missing"
-                    if c.Found { found = "ok" }
-                    err := ""
-                    if c.Error != "" { err = " (" + c.Error + ")" }
-                    fmt.Printf("    - %s [%s]%s\n", strings.Join(c.Cmd, " "), found, err)
-                }
-            }
-            fmt.Println()
-        }
-    }
+	showDetails := *flagDetails || (!noArgs && *flagDetails)
+	// If no args at all, force summary view (ignore --details which isn't set anyway)
+	if !showDetails {
+		// Create a map for quick target lookup
+		targetMap := make(map[string]Target)
+		for _, t := range targets {
+			targetMap[t.Name] = t
+		}
+
+		// Render summary table: Target | Used | Clean Commands
+		fmt.Println("Summary (per target):")
+		fmt.Println()
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.Header("Target", "Used", "Clean Commands")
+
+		for _, e := range list {
+			name := e.k
+			used := human(int64(e.v))
+			// Build commands string - only show commands for installed tools
+			cmds := ""
+			target, foundTarget := targetMap[name]
+			missingTools := []string{}
+
+			// Check for missing required tools
+			if foundTarget && len(target.Tools) > 0 {
+				for _, tool := range target.Tools {
+					installed, _, _ := checkTool(tool)
+					if !installed {
+						missingTools = append(missingTools, tool.Name)
+					}
+				}
+			}
+
+			if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
+				parts := make([]string, 0, len(cr))
+				for _, c := range cr {
+					// Only include commands where the tool is found
+					if c.Found {
+						parts = append(parts, strings.Join(c.Cmd, " "))
+					}
+				}
+				if len(parts) > 0 {
+					cmds = strings.Join(parts, " && ")
+				}
+			}
+
+			// If there are missing tools, add a message about them
+			if len(missingTools) > 0 {
+				if cmds != "" {
+					cmds += " && "
+				}
+				if len(missingTools) == 1 {
+					cmds += fmt.Sprintf("(tool '%s' needs to be installed)", missingTools[0])
+				} else {
+					cmds += fmt.Sprintf("(tools '%s' need to be installed)", strings.Join(missingTools, "', '"))
+				}
+			}
+
+			if cmds == "" {
+				cmds = " "
+			}
+
+			if err := table.Append(name, used, cmds); err != nil {
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf("table append error: %v", err))
+			}
+		}
+
+		if err := table.Render(); err != nil {
+			rep.Warnings = append(rep.Warnings, fmt.Sprintf("table render error: %v", err))
+		}
+		fmt.Println()
+	} else {
+		for _, e := range list {
+			fmt.Printf("[%s] %s\n", e.k, human(int64(e.v)))
+			// Show individual directories (detailed)
+			findings := rep.Findings[e.k]
+			sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+			for _, f := range findings {
+				if f.Err == "" {
+					fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+				}
+			}
+			if cr, ok := rep.Commands[e.k]; ok && len(cr) > 0 {
+				fmt.Println("  Commands:")
+				for _, c := range cr {
+					found := "missing"
+					if c.Found {
+						found = "ok"
+					}
+					err := ""
+					if c.Error != "" {
+						err = " (" + c.Error + ")"
+					}
+					fmt.Printf("    - %s [%s]%s\n", strings.Join(c.Cmd, " "), found, err)
+				}
+			}
+			fmt.Println()
+		}
+	}
 
 	// Now run commands if --clean is specified
 	if *flagClean {
@@ -958,7 +991,7 @@ func main() {
 		fmt.Println()
 		fmt.Println("Re-scanning after cleanup...")
 		fmt.Println()
-		
+
 		for _, t := range targets {
 			fmt.Printf("Scanning [%s]...", t.Name)
 			var sum int64
@@ -997,55 +1030,64 @@ func main() {
 				fmt.Printf(", freed %s", human(freedSpace[t.Name]))
 			}
 			fmt.Println(")")
-			
+
 			// Store findings for later display
 			rep.Findings[t.Name] = afterFindings
 		}
 
-        // Show after scan results with freed space
-		type kv2 struct{ k string; v uint64 }
+		// Show after scan results with freed space
+		type kv2 struct {
+			k string
+			v uint64
+		}
 		var list2 []kv2
 		for k, v := range afterTotals {
 			list2 = append(list2, kv2{k, v})
 		}
 		sort.Slice(list2, func(i, j int) bool { return list2[i].v > list2[j].v })
-        fmt.Println("After cleanup:")
-        fmt.Println()
-        if !*flagDetails {
-            // Summary view after cleanup
-            // Render summary table: Target | Used | Freed
-            table2 := tablewriter.NewWriter(os.Stdout)
-            table2.Header("Target", "Used", "Freed")
-            
-            for _, e := range list2 {
-                name := e.k
-                used := human(int64(e.v))
-                freed := "-"
-                if fs := freedSpace[e.k]; fs > 0 { freed = human(fs) }
-                
-                table2.Append(name, used, freed)
-            }
-            
-            table2.Render()
-            fmt.Println()
-        } else {
-            for _, e := range list2 {
-                freed := freedSpace[e.k]
-                fmt.Printf("[%s] %s", e.k, human(int64(e.v)))
-                if freed > 0 {
-                    fmt.Printf(" (freed %s)", human(freed))
-                }
-                fmt.Println()
-                findings := rep.Findings[e.k]
-                sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
-                for _, f := range findings {
-                    if f.Err == "" {
-                        fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
-                    }
-                }
-            }
-            fmt.Println()
-        }
+		fmt.Println("After cleanup:")
+		fmt.Println()
+		if !*flagDetails {
+			// Summary view after cleanup
+			// Render summary table: Target | Used | Freed
+			table2 := tablewriter.NewWriter(os.Stdout)
+			table2.Header("Target", "Used", "Freed")
+
+			for _, e := range list2 {
+				name := e.k
+				used := human(int64(e.v))
+				freed := "-"
+				if fs := freedSpace[e.k]; fs > 0 {
+					freed = human(fs)
+				}
+
+				if err := table2.Append(name, used, freed); err != nil {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("table append error: %v", err))
+				}
+			}
+
+			if err := table2.Render(); err != nil {
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf("table render error: %v", err))
+			}
+			fmt.Println()
+		} else {
+			for _, e := range list2 {
+				freed := freedSpace[e.k]
+				fmt.Printf("[%s] %s", e.k, human(int64(e.v)))
+				if freed > 0 {
+					fmt.Printf(" (freed %s)", human(freed))
+				}
+				fmt.Println()
+				findings := rep.Findings[e.k]
+				sort.Slice(findings, func(i, j int) bool { return findings[i].SizeBytes > findings[j].SizeBytes })
+				for _, f := range findings {
+					if f.Err == "" {
+						fmt.Printf("  %s: %s\n", f.Path, human(f.SizeBytes))
+					}
+				}
+			}
+			fmt.Println()
+		}
 
 		// Calculate total freed space
 		var totalFreed int64
