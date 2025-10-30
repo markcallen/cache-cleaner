@@ -14,10 +14,4 @@ repos:
       - id: go-fmt # For go fmt formatting
       - id: go-vet # For go vet checks
       - id: go-mod-tidy # For go mod tidy checks
-
-  # golangci-lint (uses the binary installed via `make install`)
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v2.6.0
-    hooks:
-      - id: golangci-lint
-        args: ["--timeout=5m"]
+      - id: golangci-lint # For golangci-lint checks
