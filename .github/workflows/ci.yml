@@ -46,8 +46,7 @@ jobs:
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v6
         with:
-          # Use a recent stable golangci-lint; action manages caching
-          version: latest
+          version: v2.6.0
           args: --timeout=5m --tests
 
       - name: Test
