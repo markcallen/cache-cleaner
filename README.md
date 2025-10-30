@@ -81,6 +81,44 @@ make run
 go run ./main.go --help
 ```
 
+### Tests
+
+Run the full test suite:
+
+```bash
+make test
+# or
+go test ./...
+```
+
+Useful invocations:
+
+```bash
+# Verbose output
+go test -v ./...
+
+# Run a specific test (regex)
+go test ./... -run TestInspectPath
+
+# Coverage summary
+go test ./... -cover
+
+# Coverage profile and HTML report
+make coverage
+# or
+go test ./... -covermode=atomic -coverprofile=build/coverage.out
+go tool cover -html=build/coverage.out -o build/coverage.html
+open build/coverage.html
+```
+
+Writing tests (guidelines for this repo):
+
+- Prefer fast, hermetic tests. Use `t.TempDir()` and temporary files/directories.
+- Avoid external dependencies and network calls. For PATH-sensitive code, use `t.Setenv("PATH", "")` or point `CheckPath` to temp files.
+- Functions like `runCmd` should be tested with non-existent binaries to avoid executing real tools.
+- Avoid invoking `main()` directly since it may call `os.Exit`. Test the underlying functions instead.
+- Keep tests in the same package (`package main`) in `*_test.go` files.
+
 ### Debug locally
 - Install Delve (debugger): `brew install delve`
 - Option 1: build and debug the binary

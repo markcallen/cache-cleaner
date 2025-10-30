@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
-	"gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // ----- Command whitelist -----
@@ -563,7 +563,10 @@ func runCmd(cmd []string) CmdResult {
 
 	// Send 'y' to confirm any interactive prompts
 	_, _ = stdin.Write([]byte("y\n"))
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		res.Error = fmt.Sprintf("stdin close error: %v", err)
+		return res
+	}
 
 	// Wait for the command to complete
 	if err := c.Wait(); err != nil {
@@ -591,7 +594,7 @@ func checkTools(cfg *Config) {
 			continue
 		}
 		// Filter by selected targets
-		if !(sel["all"] || sel[strings.ToLower(target.Name)]) {
+		if !sel["all"] && !sel[strings.ToLower(target.Name)] {
 			continue
 		}
 		for _, tool := range target.Tools {
@@ -750,7 +753,7 @@ func main() {
 		if !t.Enabled {
 			continue
 		}
-		if !(sel["all"] || sel[strings.ToLower(t.Name)]) {
+		if !sel["all"] && !sel[strings.ToLower(t.Name)] {
 			continue
 		}
 		targets = append(targets, t)
@@ -999,10 +1002,7 @@ func main() {
 			afterFindings := []Finding{}
 
 			if strings.ToLower(t.Name) == "docker" {
-				findings, total, err := dockerSystemDF()
-				if err != nil {
-					// keep going; just won't have docker findings
-				}
+				findings, total, _ := dockerSystemDF()
 				afterFindings = append(afterFindings, findings...)
 				sum = total
 			} else {
