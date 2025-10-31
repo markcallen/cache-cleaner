@@ -19,17 +19,7 @@ Go CLI for macOS that reclaims disk space by running **safe, official cleanup co
 Recommended one-liner (installs latest into your GOBIN or GOPATH/bin):
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/everydaydevops/cache-cleaner/HEAD/install.sh | sh -s --
-```
-
-Options:
-
-```bash
-# Install a specific version (e.g., v1.2.3) to /usr/local/bin
-curl -sSfL https://raw.githubusercontent.com/everydaydevops/cache-cleaner/HEAD/install.sh | sudo sh -s -- -b /usr/local/bin v1.2.3
-
-# Choose a custom bin dir without sudo (if you have permissions)
-curl -sSfL https://raw.githubusercontent.com/everydaydevops/cache-cleaner/HEAD/install.sh | sh -s -- -b "$HOME/.local/bin"
+curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s --
 ```
 
 
