@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     -*) error "unknown option: $1" ;;
     *) VERSION="$1" ;;
   esac
-  shift || true
+  shift
 done
 
 # Determine OS/ARCH
