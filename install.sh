@@ -74,7 +74,7 @@ fi
 if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
   # Fetch latest tag via GitHub API
   if command -v curl >/dev/null 2>&1; then
-    VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" | sed -n 's/  "tag_name": "\(v[^"]*\)",/\1/p' | head -n1)" || true
+    VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" | awk -F'"' '/tag_name/ {print $4}')" || true
   fi
   [ -n "$VERSION" ] || error "failed to determine latest version; pass a version like v1.2.3"
 fi
