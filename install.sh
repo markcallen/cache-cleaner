@@ -81,7 +81,7 @@ fi
 
 # Validate tag format vx.x.x
 case "$VERSION" in
-  v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*) : ;;  # strict semver check: vMAJOR.MINOR.PATCH
+  v[0-9]*\.[0-9]*\.[0-9]*) : ;;  # strict semver check: vMAJOR.MINOR.PATCH
   *) error "version must be a semver tag like v1.2.3" ;;
 esac
 
