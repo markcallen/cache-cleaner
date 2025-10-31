@@ -14,6 +14,28 @@ Go CLI for macOS that reclaims disk space by running **safe, official cleanup co
  - Docker usage measured via `docker system df` (no direct file deletions)
  - Safe path expansion with whitelist-only command substitutions
 
+## Install
+
+Recommended one-liner (installs latest into your GOBIN or GOPATH/bin):
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s --
+```
+
+
+## Quick start
+```bash
+mac-cache-cleaner --init
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml      # dry-run (summary only)
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --details  # show per-directory details
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --clean
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --targets brew,pnpm --clean
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --check-tools  # check if tools are installed
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --list-targets  # list all available targets
+mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json  # output as JSON
+```
+
+
 ## Output Modes
 
 By default, the tool shows a summary with total cache size per target:
@@ -51,18 +73,6 @@ Use `--details` to see per-directory breakdowns:
 ./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json > scan.json
 ```
 
-## Quick start
-```bash
-make build
-./build/mac-cache-cleaner --init
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml      # dry-run (summary only)
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --details  # show per-directory details
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --clean
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --targets brew,pnpm --clean
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --check-tools  # check if tools are installed
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --list-targets  # list all available targets
-./build/mac-cache-cleaner --config ~/.config/mac-cache-cleaner/config.yaml --json  # output as JSON
-```
 
 ## Development
 
