@@ -144,6 +144,52 @@ func human(n int64) string {
 	return fmt.Sprintf("%.2f TB", v/1024)
 }
 
+// wrapText wraps text at the specified width, breaking at word boundaries when possible
+func wrapText(text string, width int) string {
+	if len(text) <= width {
+		return text
+	}
+	var result strings.Builder
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		wrapLine(&result, line, width)
+	}
+	return result.String()
+}
+
+func wrapLine(result *strings.Builder, line string, width int) {
+	if len(line) <= width {
+		result.WriteString(line)
+		return
+	}
+	words := strings.Fields(line)
+	if len(words) == 0 {
+		result.WriteString(line)
+		return
+	}
+	currentLine := ""
+	for _, word := range words {
+		potentialLine := currentLine
+		if potentialLine != "" {
+			potentialLine += " "
+		}
+		potentialLine += word
+		if len(potentialLine) > width && currentLine != "" {
+			result.WriteString(currentLine)
+			result.WriteString("\n")
+			currentLine = word
+		} else {
+			currentLine = potentialLine
+		}
+	}
+	if currentLine != "" {
+		result.WriteString(currentLine)
+	}
+}
+
 // parseHumanSize converts strings like "12.3GB", "456 MB", "78.9kB", "1024 B" into bytes
 func parseHumanSize(s string) (int64, bool) {
 	s = strings.TrimSpace(s)
@@ -446,6 +492,7 @@ func writeStarterConfig(path string, force bool) error {
 			{Name: "rvm", Enabled: true, Notes: "RVM installed rubies and archives (informational)", Paths: []string{"~/.rvm/rubies", "~/.rvm/archives", "~/.rvm/src"}, Cmds: [][]string{{"rvm", "cleanup", "all"}}, Tools: []Tool{{Name: "rvm", InstallCmd: "curl -sSL https://get.rvm.io | bash", InstallNotes: "List rubies: rvm list; remove: rvm remove <ruby>"}}},
 			{Name: "dropbox", Enabled: true, Notes: "Dropbox metadata and state (informational only; no safe CLI clean)", Paths: []string{"~/.dropbox"}, Cmds: [][]string{}, Tools: []Tool{}},
 			{Name: "cursor", Enabled: true, Notes: "Cursor editor state and cache (informational)", Paths: []string{"~/.cursor"}, Cmds: [][]string{}, Tools: []Tool{}},
+			{Name: "puppeteer", Enabled: true, Notes: "Puppeteer cache", Paths: []string{"~/.cache/puppeteer"}, Cmds: [][]string{{"sh", "-c", "npm list -g puppeteer >/dev/null 2>&1 || npm install -g puppeteer; NODE_PATH=$(npm root -g) node -e \"const puppeteer = require('puppeteer'); puppeteer.default.trimCache().then(() => process.exit(0)).catch((e) => {console.error(e); process.exit(1);})\""}}, Tools: []Tool{{Name: "node", InstallCmd: "brew install node"}}},
 		},
 	}
 	if err := ensureDir(path); err != nil {
@@ -942,6 +989,9 @@ func main() {
 
 			if cmds == "" {
 				cmds = " "
+			} else {
+				// Wrap commands text at 120 characters
+				cmds = wrapText(cmds, 120)
 			}
 
 			if err := table.Append(name, used, cmds); err != nil {
