@@ -28,7 +28,7 @@ jobs:
           GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-s -w" -o dist/mac-cache-cleaner-darwin-${{ matrix.arch }} ./main.go
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mac-cache-cleaner-${{ github.ref_name }}-darwin-${{ matrix.arch }}
           path: dist/mac-cache-cleaner-darwin-${{ matrix.arch }}
