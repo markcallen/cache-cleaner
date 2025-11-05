@@ -17,11 +17,13 @@ Cross-platform tool that finds `.git` directories, reports their sizes, and opti
 
 Install all 3 apps (or specific ones) with the install script:
 
+Install all 3 apps (latest)
 ```bash
-# Install all 3 apps (latest)
 curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s --
+```
 
-# Install specific app only
+Install specific app only
+```bash
 curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -a mac-cache-cleaner
 ```
 
