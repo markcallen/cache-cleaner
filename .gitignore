@@ -1,6 +1,3 @@
 .DS_Store
 build/
 *.log
-mac-cache-cleaner
-git-cleaner
-dev-cache
