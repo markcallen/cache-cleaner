@@ -1,0 +1,86 @@
+name: Build App
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'Name of the app to build'
+        required: true
+        type: string
+      go_version:
+        description: 'Go version to use'
+        required: false
+        type: string
+        default: '1.22'
+
+jobs:
+  build:
+    name: Build ${{ inputs.app_name }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache-dependency-path: ${{ inputs.app_name }}/go.sum
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.6.0
+
+      - name: Run tests
+        working-directory: ${{ inputs.app_name }}
+        run: make test
+
+      - name: Run linter
+        working-directory: ${{ inputs.app_name }}
+        run: make lint
+
+      - name: Run vet
+        working-directory: ${{ inputs.app_name }}
+        run: make vet
+
+      - name: Check formatting
+        working-directory: ${{ inputs.app_name }}
+        run: |
+          make fmt
+          if [ -n "$(git diff --name-only)" ]; then
+            echo "Files are not formatted correctly. Please run 'make fmt' and commit again."
+            git diff
+            exit 1
+          fi
+
+      - name: Build for Linux amd64
+        working-directory: ${{ inputs.app_name }}
+        run: |
+          mkdir -p build
+          GOOS=linux GOARCH=amd64 go build -o build/${{ inputs.app_name }}-linux-amd64 main.go
+
+      - name: Build for Linux arm64
+        working-directory: ${{ inputs.app_name }}
+        run: |
+          mkdir -p build
+          GOOS=linux GOARCH=arm64 go build -o build/${{ inputs.app_name }}-linux-arm64 main.go
+
+      - name: Build for Darwin amd64
+        working-directory: ${{ inputs.app_name }}
+        run: |
+          mkdir -p build
+          GOOS=darwin GOARCH=amd64 go build -o build/${{ inputs.app_name }}-darwin-amd64 main.go
+
+      - name: Build for Darwin arm64
+        working-directory: ${{ inputs.app_name }}
+        run: |
+          mkdir -p build
+          GOOS=darwin GOARCH=arm64 go build -o build/${{ inputs.app_name }}-darwin-arm64 main.go
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-binaries
+          path: ${{ inputs.app_name }}/build/*
+          retention-days: 7
