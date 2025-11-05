@@ -1,0 +1,9 @@
+repos:
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: v1.0.0-rc.2
+    hooks:
+      - id: go-fmt # For go fmt formatting
+      - id: go-vet-mod # Run go vet on the whole repo to avoid per-file false errors
+      - id: go-mod-tidy # For go mod tidy checks
+      - id: golangci-lint-mod # For golangci-lint checks
+      - id: go-test-mod # For go test module checks

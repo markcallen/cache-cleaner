@@ -1,72 +1,31 @@
 name: CI
 
 on:
-  pull_request:
-    branches: ["**"]
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build-test-lint:
-    name: Lint, Format, Test, Build
-    runs-on: ubuntu-latest
+  # Build all apps by calling the reusable workflow
+  build-dev-cache:
+    name: Build dev-cache
+    uses: ./.github/workflows/build-app.yml
+    with:
+      app_name: dev-cache
+      go_version: '1.22'
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+  build-git-cleaner:
+    name: Build git-cleaner
+    uses: ./.github/workflows/build-app.yml
+    with:
+      app_name: git-cleaner
+      go_version: '1.22'
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Verify formatting (gofmt)
-        run: |
-          fmt_out=$(gofmt -s -l . | tr -d '\n')
-          if [ -n "$fmt_out" ]; then
-            echo "The following files are not gofmt-ed:" >&2
-            gofmt -s -l . >&2
-            exit 1
-          fi
-
-      - name: Verify module files are tidy
-        run: |
-          go mod tidy
-          # Fail if go.mod/go.sum changed
-          git diff --exit-code -- go.mod go.sum || {
-            echo "go.mod/go.sum not tidy. Run 'go mod tidy' locally." >&2
-            exit 1
-          }
-
-      - name: Go vet
-        run: go vet ./...
-
-      - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.6.0
-          args: --timeout=5m --tests
-
-      - name: Test
-        run: |
-          mkdir -p build
-          go test ./... -covermode=atomic -coverprofile build/coverage.out
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: coverage
-          path: |
-            build/coverage.out
-          if-no-files-found: ignore
-
-      - name: Build
-        run: |
-          mkdir -p build
-          go build -v -o build/mac-cache-cleaner ./
+  build-mac-cache-cleaner:
+    name: Build mac-cache-cleaner
+    uses: ./.github/workflows/build-app.yml
+    with:
+      app_name: mac-cache-cleaner
+      go_version: '1.22'
