@@ -1,18 +1,41 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v4.3.0
     hooks:
+      - id: check-json
       - id: check-yaml
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: check-merge-conflict
       - id: check-added-large-files
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: detect-private-key
+      - id: check-merge-conflict
 
-  - repo: https://github.com/TekWizely/pre-commit-golang
-    rev: v1.0.0-rc.2
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
     hooks:
-      - id: go-fmt # For go fmt formatting
-      - id: go-vet-mod # Run go vet on the whole repo to avoid per-file false errors
-      - id: go-mod-tidy # For go mod tidy checks
-      - id: golangci-lint-mod # For golangci-lint checks
-      - id: go-test-mod # For go test module checks
+      - id: yamllint
+        args: [--strict]
+
+  - repo: https://github.com/ddanier/sub-pre-commit.git
+    rev: v4.3.0-2 # MUST match your pre-commit version
+    hooks:
+      - id: sub-pre-commit
+        alias: dev-cache
+        name: "pre-commit for dev-cache/"
+        args: ["-p", "dev-cache"]
+        files: "^dev-cache/.*"
+        stages: ["pre-commit"]
+
+      - id: sub-pre-commit
+        alias: git-cleaner
+        name: "pre-commit for git-cleaner/"
+        args: ["-p", "git-cleaner"]
+        files: "^git-cleaner/.*"
+        stages: ["pre-commit"]
+
+      - id: sub-pre-commit
+        alias: mac-cache-cleaner
+        name: "pre-commit for mac-cache-cleaner/"
+        args: ["-p", "mac-cache-cleaner"]
+        files: "^mac-cache-cleaner/.*"
+        stages: ["pre-commit"]
