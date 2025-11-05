@@ -4,24 +4,31 @@ set -eu
 
 REPO_OWNER="markcallen"
 REPO_NAME="cache-cleaner"
-APP_NAME="mac-cache-cleaner"
+
+# Available apps
+APPS="dev-cache git-cleaner mac-cache-cleaner"
 
 usage() {
   cat <<EOF
-Install ${APP_NAME}
+Install cache-cleaner tools
 
 Usage:
-  install.sh [-b <bin_dir>] [<version>]
+  install.sh [-b <bin_dir>] [-a <app>] [<version>]
 
 Options:
   -b <bin_dir>   Install destination directory (default: GOBIN or GOPATH/bin)
+  -a <app>       Install specific app only: dev-cache, git-cleaner, or mac-cache-cleaner
+                 (default: install all 3 apps)
 
 Arguments:
   <version>      Version tag to install (e.g., v1.2.3). Default: latest release
 
 Examples:
-  # Install latest to GOBIN/GOPATH/bin
+  # Install all 3 apps (latest) to GOBIN/GOPATH/bin
   curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s --
+
+  # Install only mac-cache-cleaner
+  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -a mac-cache-cleaner
 
   # Install specific version to /usr/local/bin
   curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sudo sh -s -- -b /usr/local/bin v1.2.3
@@ -32,16 +39,27 @@ error() { printf "Error: %s\n" "$1" >&2; exit 1; }
 
 BIN_DIR=""
 VERSION=""
+APP_FILTER=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     -b) shift; [ $# -gt 0 ] || error "-b requires a directory"; BIN_DIR="$1" ;;
+    -a) shift; [ $# -gt 0 ] || error "-a requires an app name"; APP_FILTER="$1" ;;
     -*) error "unknown option: $1" ;;
     *) VERSION="$1" ;;
   esac
   shift
 done
+
+# Validate app filter if provided
+if [ -n "$APP_FILTER" ]; then
+  case "$APP_FILTER" in
+    dev-cache|git-cleaner|mac-cache-cleaner) : ;;
+    *) error "invalid app: $APP_FILTER (must be one of: dev-cache, git-cleaner, mac-cache-cleaner)" ;;
+  esac
+  APPS="$APP_FILTER"
+fi
 
 # Determine OS/ARCH
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -85,26 +103,43 @@ case "$VERSION" in
   *) error "version must be a semver tag like v1.2.3" ;;
 esac
 
-ASSET_NAME="${APP_NAME}-darwin-${ARCH}"
-DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VERSION}/${ASSET_NAME}"
-
-TMPFILE="$(mktemp -t ${APP_NAME}.XXXXXX)"
-trap 'rm -f "$TMPFILE"' EXIT INT HUP TERM
-
-printf "Installing %s %s for %s/%s to %s\n" "$APP_NAME" "$VERSION" "$OS" "$ARCH" "$BIN_DIR"
-
-curl -fL "${DOWNLOAD_URL}" -o "$TMPFILE" || error "download failed: ${DOWNLOAD_URL}"
-
-chmod 0755 "$TMPFILE"
-mkdir -p "$BIN_DIR"
-DEST="$BIN_DIR/${APP_NAME}"
-
-if mv "$TMPFILE" "$DEST" 2>/dev/null; then :; else
-  # Try install to handle cross-filesystem permissions
-  if install -m 0755 "$TMPFILE" "$DEST" 2>/dev/null; then :; else
-    error "failed to install to $DEST (try with sudo or set -b)"
+# Cleanup function for temp files
+cleanup() {
+  if [ -n "${TMPFILE:-}" ] && [ -f "$TMPFILE" ]; then
+    rm -f "$TMPFILE"
   fi
-fi
+}
+trap cleanup EXIT INT HUP TERM
 
-printf "Installed: %s\n" "$DEST"
-"$DEST" --version >/dev/null 2>&1 || true
+# Install each app
+for APP_NAME in $APPS; do
+  ASSET_NAME="${APP_NAME}-darwin-${ARCH}"
+  DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VERSION}/${ASSET_NAME}"
+
+  TMPFILE="$(mktemp -t ${APP_NAME}.XXXXXX)"
+
+  printf "Installing %s %s for %s/%s to %s\n" "$APP_NAME" "$VERSION" "$OS" "$ARCH" "$BIN_DIR"
+
+  curl -fL "${DOWNLOAD_URL}" -o "$TMPFILE" || error "download failed: ${DOWNLOAD_URL}"
+
+  chmod 0755 "$TMPFILE"
+  mkdir -p "$BIN_DIR"
+  DEST="$BIN_DIR/${APP_NAME}"
+
+  if mv "$TMPFILE" "$DEST" 2>/dev/null; then
+    # Successfully moved, clear TMPFILE so cleanup doesn't try to remove it
+    TMPFILE=""
+  else
+    # Try install to handle cross-filesystem permissions
+    if install -m 0755 "$TMPFILE" "$DEST" 2>/dev/null; then
+      # Successfully installed, remove temp file since install copies it
+      rm -f "$TMPFILE"
+      TMPFILE=""
+    else
+      error "failed to install to $DEST (try with sudo or set -b)"
+    fi
+  fi
+
+  printf "Installed: %s\n" "$DEST"
+  "$DEST" --version >/dev/null 2>&1 || true
+done

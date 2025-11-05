@@ -7,11 +7,12 @@ on:
 
 jobs:
   build-matrix:
-    name: Build darwin binaries
+    name: Build ${{ matrix.app }} for darwin ${{ matrix.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        app: [dev-cache, git-cleaner, mac-cache-cleaner]
         arch: [amd64, arm64]
     steps:
       - name: Checkout
@@ -23,15 +24,16 @@ jobs:
           go-version: '1.22.x'
 
       - name: Build
+        working-directory: ${{ matrix.app }}
         run: |
           mkdir -p dist
-          GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-s -w" -o dist/mac-cache-cleaner-darwin-${{ matrix.arch }} ./main.go
+          GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-s -w" -o dist/${{ matrix.app }}-darwin-${{ matrix.arch }} ./main.go
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: mac-cache-cleaner-${{ github.ref_name }}-darwin-${{ matrix.arch }}
-          path: dist/mac-cache-cleaner-darwin-${{ matrix.arch }}
+          name: ${{ matrix.app }}-${{ github.ref_name }}-darwin-${{ matrix.arch }}
+          path: ${{ matrix.app }}/dist/${{ matrix.app }}-darwin-${{ matrix.arch }}
           if-no-files-found: error
 
   release:
@@ -51,6 +53,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: |
+            dist/**/dev-cache-darwin-amd64
+            dist/**/dev-cache-darwin-arm64
+            dist/**/git-cleaner-darwin-amd64
+            dist/**/git-cleaner-darwin-arm64
             dist/**/mac-cache-cleaner-darwin-amd64
             dist/**/mac-cache-cleaner-darwin-arm64
           generate_release_notes: true
