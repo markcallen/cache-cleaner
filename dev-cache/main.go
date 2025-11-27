@@ -632,7 +632,6 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				}
 				detectedLang = ""
 				// Skip all language detection for this directory at any depth
-				continue
 			}
 
 			// Check cache first for project root
@@ -656,7 +655,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 
 			// If no language found at project root and we haven't reached max depth,
 			// try detecting language at current directory level (might be a nested project)
-			if detectedLang == "" && depth < maxDepth && !isExcluded {
+			if detectedLang == "" && depth < maxDepth && !excludedDirs[projectRoot] {
 				// Try detecting language at current directory (skip if excluded)
 				currentLang := detectLanguage(cleanPath, langSignatures, langPriorities)
 				if currentLang != "" {
@@ -669,7 +668,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			}
 
 			// Try detecting language at current level if we're at max depth and haven't found one yet
-			if depth == maxDepth && detectedLang == "" && !isExcluded {
+			if depth == maxDepth && detectedLang == "" && !excludedDirs[projectRoot] {
 				// Try one more time to detect language at current level (skip if excluded)
 				currentLang := detectLanguage(cleanPath, langSignatures, langPriorities)
 				if currentLang == "" {
