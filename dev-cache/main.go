@@ -144,6 +144,11 @@ func inspectPath(root string) (Finding, error) {
 	return f, errWalk
 }
 
+// isCacheDirectory returns true if the finding represents a cache directory (has a non-empty pattern)
+func isCacheDirectory(f Finding) bool {
+	return f.Pattern != ""
+}
+
 // ----- Config IO -----
 
 func writeStarterConfig(path string, force bool) error {
@@ -341,7 +346,7 @@ func main() {
 		var cacheFindings []Finding
 		var cacheTotal int64
 		for _, f := range findings {
-			if f.Pattern != "" {
+			if isCacheDirectory(f) {
 				cacheFindings = append(cacheFindings, f)
 				cacheTotal += f.SizeBytes
 			}
@@ -395,7 +400,7 @@ func main() {
 		afterFindings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns)
 		var afterTotal int64
 		for _, f := range afterFindings {
-			if f.Pattern != "" {
+			if isCacheDirectory(f) {
 				afterTotal += f.SizeBytes
 			}
 		}
@@ -772,7 +777,7 @@ func displayDetailed(findings []Finding, total int64) {
 		if f.Err != "" {
 			continue
 		}
-		if f.Pattern != "" {
+		if isCacheDirectory(f) {
 			// Use ProjectRoot if available, otherwise fall back to Path
 			projectPath := f.ProjectRoot
 			if projectPath == "" {
@@ -819,7 +824,7 @@ func displayDetailed(findings []Finding, total int64) {
 
 		projectGroups[projectPath][cacheType].SizeBytes += f.SizeBytes
 		projectGroups[projectPath][cacheType].Items += f.Items
-		if f.Pattern != "" && !contains(projectGroups[projectPath][cacheType].Patterns, f.Pattern) {
+		if isCacheDirectory(f) && !contains(projectGroups[projectPath][cacheType].Patterns, f.Pattern) {
 			projectGroups[projectPath][cacheType].Patterns = append(projectGroups[projectPath][cacheType].Patterns, f.Pattern)
 		}
 	}
