@@ -483,6 +483,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 	depth0NoLang := make(map[string]bool)
 	// Track all depth 0 directories that were scanned (for final reporting)
 	depth0Scanned := make(map[string]bool)
+	// Map to track findings by path for O(1) lookups (only for findings with non-empty Pattern)
+	findingsByPath := make(map[string]bool)
 
 	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -626,7 +628,6 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 
 		// Check if directory name matches any pattern BEFORE any fallback reporting
 		// This ensures cache directories are detected even if they're at depth 0
-		// (dirName already declared above)
 		for _, pattern := range patternsToCheck {
 			if matchPattern(dirName, pattern) {
 				// Found a match - calculate size
@@ -644,6 +645,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 					f.ProjectRoot = filepath.Dir(cleanPath)
 				}
 				findings = append(findings, f)
+				// Track this path in the map for O(1) lookups
+				findingsByPath[cleanPath] = true
 
 				// Skip subdirectories of matched directories
 				return filepath.SkipDir
@@ -653,14 +656,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 		// Only report "no language found" at max depth if we didn't match a pattern
 		// and this is a depth 0 directory (project root)
 		if detectLang && depth == 0 && detectedLang == "" && projectRoot == cleanPath {
-			// Check if this directory already has a finding (as a cache directory)
-			hasFinding := false
-			for _, existing := range findings {
-				if existing.Path == cleanPath && existing.Pattern != "" {
-					hasFinding = true
-					break
-				}
-			}
+			// Check if this directory already has a finding (as a cache directory) using O(1) map lookup
+			hasFinding := findingsByPath[cleanPath]
 			// Only report if no cache directory finding exists
 			if !hasFinding {
 				// Check if we need to report this depth 0 directory
