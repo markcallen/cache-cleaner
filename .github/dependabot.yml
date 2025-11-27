@@ -2,7 +2,23 @@ version: 2
 updates:
   # Enable version updates for Go modules
   - package-ecosystem: "gomod"
-    directory: "/"
+    directory: "/dev-cache"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/git-cleaner"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/mac-cache-cleaner"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
