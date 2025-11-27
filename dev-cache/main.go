@@ -483,6 +483,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 	depth0NoLang := make(map[string]bool)
 	// Track all depth 0 directories that were scanned (for final reporting)
 	depth0Scanned := make(map[string]bool)
+	// Map to track findings by path for O(1) lookups (only for findings with non-empty Pattern)
+	findingsByPath := make(map[string]bool)
 
 	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -527,13 +529,28 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 		var detectedLang string
 		var projectRoot string
 
+		// First, check if this directory matches a cache pattern
+		// Cache directories should not be treated as project roots
+		dirName := filepath.Base(cleanPath)
+		matchesCachePattern := false
+		for _, pattern := range patterns {
+			if matchPattern(dirName, pattern) {
+				matchesCachePattern = true
+				break
+			}
+		}
+
 		if detectLang {
 			// Detect language at project root level (depth 0 or 1)
 			// For depth 0, this is a direct child of root (first project level)
 			// For depth > 0, we're deeper in the tree - check parent directories for language
-			if depth == 0 {
+			if depth == 0 && !matchesCachePattern {
 				// This is a project root directory - detect language here
+				// But skip if it matches a cache pattern (cache dirs are not project roots)
 				projectRoot = cleanPath
+			} else if depth == 0 && matchesCachePattern {
+				// This is a cache directory at depth 0 - use scan root as project root
+				projectRoot = root
 			} else {
 				// We're deeper in the tree - walk up to find the project root
 				// Find the project root (first directory at depth 0 from root)
@@ -591,48 +608,13 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				// Try one more time to detect language at current level
 				currentLang := detectLanguage(cleanPath, langSignatures, langPriorities)
 				if currentLang == "" {
-					// Only report "no language found" for directories at depth 0 (project roots)
-					// Don't report for subdirectories like .git, docs, etc. that are not project roots
-					if depth == 0 {
-						f := Finding{
-							Path:        path,
-							ProjectRoot: cleanPath, // Same as Path since this is the project root
-							Language:    "no language found",
-							Pattern:     "",
-							SizeBytes:   0,
-							Items:       0,
-							ModMax:      time.Time{},
-						}
-						findings = append(findings, f)
-						// Remove from tracking since we've reported it
-						delete(depth0NoLang, cleanPath)
-					}
 					// At max depth with no language, still scan for patterns using all patterns
 					// (patternsToCheck already contains all patterns)
+					// Don't report "no language found" here - pattern matching happens below
+					// and fallback reporting happens at the end
 				} else {
 					detectedLang = currentLang
 					langCache[cleanPath] = currentLang
-				}
-			}
-
-			// When we reach max depth, check if we need to report any depth 0 directories without languages
-			if depth == maxDepth && projectRoot != "" {
-				if _, needsReport := depth0NoLang[projectRoot]; needsReport {
-					// Check if project root still doesn't have a language
-					if cachedLang, ok := langCache[projectRoot]; !ok || cachedLang == "" {
-						f := Finding{
-							Path:        projectRoot,
-							ProjectRoot: projectRoot, // Same as Path since this is the project root
-							Language:    "no language found",
-							Pattern:     "",
-							SizeBytes:   0,
-							Items:       0,
-							ModMax:      time.Time{},
-						}
-						findings = append(findings, f)
-						// Remove from tracking since we've reported it
-						delete(depth0NoLang, projectRoot)
-					}
 				}
 			}
 
@@ -644,8 +626,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			}
 		}
 
-		// Check if directory name matches any pattern
-		dirName := filepath.Base(cleanPath)
+		// Check if directory name matches any pattern BEFORE any fallback reporting
+		// This ensures cache directories are detected even if they're at depth 0
 		for _, pattern := range patternsToCheck {
 			if matchPattern(dirName, pattern) {
 				// Found a match - calculate size
@@ -663,9 +645,35 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 					f.ProjectRoot = filepath.Dir(cleanPath)
 				}
 				findings = append(findings, f)
+				// Track this path in the map for O(1) lookups
+				findingsByPath[cleanPath] = true
 
 				// Skip subdirectories of matched directories
 				return filepath.SkipDir
+			}
+		}
+
+		// Only report "no language found" at max depth if we didn't match a pattern
+		// and this is a depth 0 directory (project root)
+		if detectLang && depth == 0 && detectedLang == "" && !matchesCachePattern {
+			// Check if this directory already has a finding (as a cache directory) using O(1) map lookup
+			hasFinding := findingsByPath[cleanPath]
+			// Only report if no cache directory finding exists
+			if !hasFinding {
+				// Check if we need to report this depth 0 directory
+				if _, needsReport := depth0NoLang[projectRoot]; needsReport {
+					f := Finding{
+						Path:        projectRoot,
+						ProjectRoot: projectRoot,
+						Language:    "no language found",
+						Pattern:     "",
+						SizeBytes:   0,
+						Items:       0,
+						ModMax:      time.Time{},
+					}
+					findings = append(findings, f)
+					delete(depth0NoLang, projectRoot)
+				}
 			}
 		}
 
