@@ -632,6 +632,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				}
 				detectedLang = ""
 				// Skip all language detection for this directory at any depth
+				continue
 			}
 
 			// Check cache first for project root
