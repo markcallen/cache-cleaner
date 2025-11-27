@@ -655,7 +655,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 
 		// Only report "no language found" at max depth if we didn't match a pattern
 		// and this is a depth 0 directory (project root)
-		if detectLang && depth == 0 && detectedLang == "" && projectRoot == cleanPath {
+		if detectLang && depth == 0 && detectedLang == "" && !matchesCachePattern {
 			// Check if this directory already has a finding (as a cache directory) using O(1) map lookup
 			hasFinding := findingsByPath[cleanPath]
 			// Only report if no cache directory finding exists
