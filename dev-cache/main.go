@@ -149,6 +149,20 @@ func isCacheDirectory(f Finding) bool {
 	return f.Pattern != ""
 }
 
+// getLanguageForExclusion returns the appropriate language string based on detected language and exclusion status.
+// Excluded directories should have empty language (not "no language found").
+// If not excluded and no language detected, returns "no language found".
+// Otherwise returns the detected language.
+func getLanguageForExclusion(detectedLang string, isExcluded bool) string {
+	if isExcluded {
+		return ""
+	}
+	if detectedLang == "" {
+		return "no language found"
+	}
+	return detectedLang
+}
+
 // ----- Config IO -----
 
 func writeStarterConfig(path string, force bool) error {
@@ -492,6 +506,12 @@ func detectLanguage(dirPath string, langSignatures map[string][]string, langPrio
 func scanDirectory(root string, maxDepth int, patterns []string, patternToLang map[string]string, detectLang bool, langSignatures map[string][]string, langPriorities map[string]int, langToPatterns map[string][]string) []Finding {
 	var findings []Finding
 
+	// Directories that should not have language detection performed
+	// These directories will still be listed but with null/empty language
+	excludedFromLanguageDetection := []string{
+		".git",
+	}
+
 	// Normalize root path for consistent separator counting
 	root = filepath.Clean(root)
 	rootAbs, err := filepath.Abs(root)
@@ -507,6 +527,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 	depth0Scanned := make(map[string]bool)
 	// Map to track findings by path for O(1) lookups (only for findings with non-empty Pattern)
 	findingsByPath := make(map[string]bool)
+	// Track excluded directories (will be reported with empty language)
+	excludedDirs := make(map[string]bool)
 
 	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -562,6 +584,15 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			}
 		}
 
+		// Check if this directory should be excluded from language detection
+		isExcluded := false
+		for _, excluded := range excludedFromLanguageDetection {
+			if dirName == excluded {
+				isExcluded = true
+				break
+			}
+		}
+
 		if detectLang {
 			// Detect language at project root level (depth 0 or 1)
 			// For depth 0, this is a direct child of root (first project level)
@@ -592,6 +623,17 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				depth0Scanned[projectRoot] = true
 			}
 
+			// If this directory is excluded, skip language detection and mark it
+			if isExcluded {
+				// If this is the project root itself (depth 0), mark the project root as excluded
+				if depth == 0 {
+					excludedDirs[projectRoot] = true
+					langCache[projectRoot] = "" // Explicitly set to empty, not "no language found"
+				}
+				detectedLang = ""
+				// Skip all language detection for this directory at any depth
+			}
+
 			// Check cache first for project root
 			if cachedLang, ok := langCache[projectRoot]; ok {
 				detectedLang = cachedLang
@@ -599,8 +641,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				if detectedLang != "" {
 					delete(depth0NoLang, projectRoot)
 				}
-			} else if projectRoot != "" {
-				// Detect language at project root and cache result
+			} else if projectRoot != "" && !excludedDirs[projectRoot] {
+				// Detect language at project root and cache result (skip if excluded)
 				detectedLang = detectLanguage(projectRoot, langSignatures, langPriorities)
 				if projectRoot != "" {
 					langCache[projectRoot] = detectedLang
@@ -613,8 +655,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 
 			// If no language found at project root and we haven't reached max depth,
 			// try detecting language at current directory level (might be a nested project)
-			if detectedLang == "" && depth < maxDepth {
-				// Try detecting language at current directory
+			if detectedLang == "" && depth < maxDepth && !excludedDirs[projectRoot] {
+				// Try detecting language at current directory (skip if excluded)
 				currentLang := detectLanguage(cleanPath, langSignatures, langPriorities)
 				if currentLang != "" {
 					detectedLang = currentLang
@@ -626,10 +668,26 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			}
 
 			// Try detecting language at current level if we're at max depth and haven't found one yet
-			if depth == maxDepth && detectedLang == "" {
-				// Try one more time to detect language at current level
+			if depth == maxDepth && detectedLang == "" && !excludedDirs[projectRoot] {
+				// Try one more time to detect language at current level (skip if excluded)
 				currentLang := detectLanguage(cleanPath, langSignatures, langPriorities)
 				if currentLang == "" {
+					// Only report "no language found" for directories at depth 0 (project roots)
+					// Don't report for subdirectories like .git, docs, etc. that are not project roots
+					if depth == 0 {
+						f := Finding{
+							Path:        path,
+							ProjectRoot: cleanPath, // Same as Path since this is the project root
+							Language:    getLanguageForExclusion("", excludedDirs[cleanPath]),
+							Pattern:     "",
+							SizeBytes:   0,
+							Items:       0,
+							ModMax:      time.Time{},
+						}
+						findings = append(findings, f)
+						// Remove from tracking since we've reported it
+						delete(depth0NoLang, cleanPath)
+					}
 					// At max depth with no language, still scan for patterns using all patterns
 					// (patternsToCheck already contains all patterns)
 					// Don't report "no language found" here - pattern matching happens below
@@ -637,6 +695,27 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				} else {
 					detectedLang = currentLang
 					langCache[cleanPath] = currentLang
+				}
+			}
+
+			// When we reach max depth, check if we need to report any depth 0 directories without languages
+			if depth == maxDepth && projectRoot != "" {
+				if _, needsReport := depth0NoLang[projectRoot]; needsReport {
+					// Check if project root still doesn't have a language
+					if cachedLang, ok := langCache[projectRoot]; !ok || cachedLang == "" {
+						f := Finding{
+							Path:        projectRoot,
+							ProjectRoot: projectRoot, // Same as Path since this is the project root
+							Language:    getLanguageForExclusion("", excludedDirs[projectRoot]),
+							Pattern:     "",
+							SizeBytes:   0,
+							Items:       0,
+							ModMax:      time.Time{},
+						}
+						findings = append(findings, f)
+						// Remove from tracking since we've reported it
+						delete(depth0NoLang, projectRoot)
+					}
 				}
 			}
 
@@ -726,13 +805,10 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			// Get the detected language for this directory
 			// Always report the language if found, even if there are no cache directories
 			detectedLang := langCache[projectRoot]
-			if detectedLang == "" {
-				detectedLang = "no language found"
-			}
 			f := Finding{
 				Path:        projectRoot,
 				ProjectRoot: projectRoot, // Same as Path since this is the project root
-				Language:    detectedLang,
+				Language:    getLanguageForExclusion(detectedLang, excludedDirs[projectRoot]),
 				Pattern:     "",
 				SizeBytes:   0,
 				Items:       0,
