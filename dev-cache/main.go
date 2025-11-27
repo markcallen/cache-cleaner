@@ -144,6 +144,11 @@ func inspectPath(root string) (Finding, error) {
 	return f, errWalk
 }
 
+// isCacheDirectory returns true if the finding represents a cache directory (has a non-empty pattern)
+func isCacheDirectory(f Finding) bool {
+	return f.Pattern != ""
+}
+
 // ----- Config IO -----
 
 func writeStarterConfig(path string, force bool) error {
@@ -337,11 +342,26 @@ func main() {
 
 	// Cleanup if requested
 	if *flagClean {
+		// Filter findings to only include those with a cache pattern (non-empty Pattern)
+		var cacheFindings []Finding
+		var cacheTotal int64
+		for _, f := range findings {
+			if isCacheDirectory(f) {
+				cacheFindings = append(cacheFindings, f)
+				cacheTotal += f.SizeBytes
+			}
+		}
+
+		if len(cacheFindings) == 0 {
+			fmt.Println("\nNo cache directories found to delete.")
+			return
+		}
+
 		if !*flagYes {
-			fmt.Printf("\nWARNING: This will delete %d cache directories:\n", len(findings))
+			fmt.Printf("\nWARNING: This will delete %d cache directories:\n", len(cacheFindings))
 			// Sort findings by size (largest first) for display
-			sortedFindings := make([]Finding, len(findings))
-			copy(sortedFindings, findings)
+			sortedFindings := make([]Finding, len(cacheFindings))
+			copy(sortedFindings, cacheFindings)
 			sort.Slice(sortedFindings, func(i, j int) bool {
 				return sortedFindings[i].SizeBytes > sortedFindings[j].SizeBytes
 			})
@@ -363,11 +383,11 @@ func main() {
 		}
 
 		fmt.Println("\nDeleting cache directories...")
-		beforeTotal := total
+		beforeTotal := cacheTotal
 		var deletedCount int
 		var errors []string
 
-		for _, f := range findings {
+		for _, f := range cacheFindings {
 			if err := os.RemoveAll(f.Path); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", f.Path, err))
 				continue
@@ -380,7 +400,9 @@ func main() {
 		afterFindings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns)
 		var afterTotal int64
 		for _, f := range afterFindings {
-			afterTotal += f.SizeBytes
+			if isCacheDirectory(f) {
+				afterTotal += f.SizeBytes
+			}
 		}
 
 		freed := beforeTotal - afterTotal
@@ -755,7 +777,7 @@ func displayDetailed(findings []Finding, total int64) {
 		if f.Err != "" {
 			continue
 		}
-		if f.Pattern != "" {
+		if isCacheDirectory(f) {
 			// Use ProjectRoot if available, otherwise fall back to Path
 			projectPath := f.ProjectRoot
 			if projectPath == "" {
@@ -802,7 +824,7 @@ func displayDetailed(findings []Finding, total int64) {
 
 		projectGroups[projectPath][cacheType].SizeBytes += f.SizeBytes
 		projectGroups[projectPath][cacheType].Items += f.Items
-		if f.Pattern != "" && !contains(projectGroups[projectPath][cacheType].Patterns, f.Pattern) {
+		if isCacheDirectory(f) && !contains(projectGroups[projectPath][cacheType].Patterns, f.Pattern) {
 			projectGroups[projectPath][cacheType].Patterns = append(projectGroups[projectPath][cacheType].Patterns, f.Pattern)
 		}
 	}
