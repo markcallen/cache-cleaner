@@ -624,11 +624,14 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			}
 
 			// If this directory is excluded, skip language detection and mark it
-			if isExcluded && depth == 0 {
-				excludedDirs[projectRoot] = true
-				langCache[projectRoot] = "" // Explicitly set to empty, not "no language found"
+			if isExcluded {
+				// If this is the project root itself (depth 0), mark the project root as excluded
+				if depth == 0 {
+					excludedDirs[projectRoot] = true
+					langCache[projectRoot] = "" // Explicitly set to empty, not "no language found"
+				}
 				detectedLang = ""
-				// Skip all language detection for this directory
+				// Skip all language detection for this directory at any depth
 			}
 
 			// Check cache first for project root
