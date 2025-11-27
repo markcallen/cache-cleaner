@@ -642,7 +642,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				if detectedLang != "" {
 					delete(depth0NoLang, projectRoot)
 				}
-			} else if projectRoot != "" && !isExcluded {
+			} else if projectRoot != "" && !excludedDirs[projectRoot] {
 				// Detect language at project root and cache result (skip if excluded)
 				detectedLang = detectLanguage(projectRoot, langSignatures, langPriorities)
 				if projectRoot != "" {
