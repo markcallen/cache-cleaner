@@ -30,7 +30,7 @@ jobs:
           GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-s -w" -o dist/${{ matrix.app }}-darwin-${{ matrix.arch }} ./main.go
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.app }}-${{ github.ref_name }}-darwin-${{ matrix.arch }}
           path: ${{ matrix.app }}/dist/${{ matrix.app }}-darwin-${{ matrix.arch }}

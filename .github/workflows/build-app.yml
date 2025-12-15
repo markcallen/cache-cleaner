@@ -79,7 +79,7 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o build/${{ inputs.app_name }}-darwin-arm64 main.go
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.app_name }}-binaries
           path: ${{ inputs.app_name }}/build/*
