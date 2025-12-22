@@ -1,0 +1,185 @@
+# GoReleaser configuration for cache-cleaner
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Run go mod tidy in each app directory
+    - sh -c "cd dev-cache && go mod tidy"
+    - sh -c "cd git-cleaner && go mod tidy"
+    - sh -c "cd mac-cache-cleaner && go mod tidy"
+
+builds:
+  # dev-cache binary
+  - id: dev-cache
+    main: ./main.go
+    dir: ./dev-cache
+    binary: dev-cache
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  # git-cleaner binary
+  - id: git-cleaner
+    main: ./main.go
+    dir: ./git-cleaner
+    binary: git-cleaner
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  # mac-cache-cleaner binary
+  - id: mac-cache-cleaner
+    main: ./main.go
+    dir: ./mac-cache-cleaner
+    binary: mac-cache-cleaner
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  # Individual binaries for direct download
+  - id: binaries
+    format: binary
+    name_template: "{{ .Binary }}-darwin-{{ .Arch }}"
+
+  # Combined tarball for Homebrew
+  - id: cache-cleaner
+    format: tar.gz
+    name_template: "cache-cleaner-{{ .Version }}-darwin-{{ .Arch }}"
+    files:
+      - none*  # Only include binaries, no extra files
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - 'typo'
+  groups:
+    - title: 'New Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Other Changes'
+      order: 999
+
+# Homebrew tap configuration
+# Note: "brews" is deprecated but still functional. Will migrate to "homebrews" in future.
+brews:
+  - name: cache-cleaner
+    # Use the cache-cleaner archive which includes all binaries
+    ids:
+      - cache-cleaner
+    repository:
+      owner: markcallen
+      name: homebrew-cache-cleaner
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/markcallen/cache-cleaner
+    description: "Collection of Go CLI tools for reclaiming disk space on development machines"
+    license: MIT
+
+    # Install all three binaries
+    # Note: GoReleaser will automatically detect the binaries from the builds
+    install: |
+      bin.install "dev-cache"
+      bin.install "git-cleaner"
+      bin.install "mac-cache-cleaner"
+
+    # Test all three binaries
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/dev-cache --version")
+      assert_match version.to_s, shell_output("#{bin}/git-cleaner --version")
+      assert_match version.to_s, shell_output("#{bin}/mac-cache-cleaner --version")
+
+    # Dependencies (if any)
+    # dependencies:
+    #   - name: go
+    #     type: optional
+
+    # Caveats to display after installation
+    caveats: |
+      cache-cleaner includes three utilities:
+        • dev-cache     - Scans for project cache directories
+        • git-cleaner   - Finds and optimizes .git directories
+        • mac-cache-cleaner - Runs safe cleanup commands for developer tools
+
+      Quick start:
+        dev-cache --init
+        git-cleaner --scan ~/src
+        mac-cache-cleaner --init
+
+      Documentation: https://github.com/markcallen/cache-cleaner
+
+release:
+  github:
+    owner: markcallen
+    name: cache-cleaner
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Cache Cleaner {{ .Tag }}
+
+    A collection of Go CLI tools for reclaiming disk space on development machines.
+
+    ### Installation
+
+    **Recommended: Homebrew**
+    ```bash
+    brew tap markcallen/cache-cleaner
+    brew install cache-cleaner
+    ```
+
+    **Alternative: Direct Download**
+    Download the binaries for your architecture below and place them in your PATH.
+
+  footer: |
+    **Full Changelog**: https://github.com/markcallen/cache-cleaner/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+  name_template: "{{.ProjectName}}-v{{.Version}}"

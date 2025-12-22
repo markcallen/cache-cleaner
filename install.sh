@@ -12,11 +12,15 @@ usage() {
   cat <<EOF
 Install cache-cleaner tools
 
+RECOMMENDED: Use Homebrew instead of this script:
+  brew tap markcallen/cache-cleaner
+  brew install cache-cleaner
+
 Usage:
-  install.sh [-b <bin_dir>] [-a <app>] [<version>]
+  install.sh -b <bin_dir> [-a <app>] [<version>]
 
 Options:
-  -b <bin_dir>   Install destination directory (default: GOBIN or GOPATH/bin)
+  -b <bin_dir>   Install destination directory (REQUIRED)
   -a <app>       Install specific app only: dev-cache, git-cleaner, or mac-cache-cleaner
                  (default: install all 3 apps)
 
@@ -24,14 +28,17 @@ Arguments:
   <version>      Version tag to install (e.g., v1.2.3). Default: latest release
 
 Examples:
-  # Install all 3 apps (latest) to GOBIN/GOPATH/bin
-  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s --
+  # Install all 3 apps (latest) to ~/.local/bin
+  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
 
   # Install only mac-cache-cleaner
-  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -a mac-cache-cleaner
+  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin -a mac-cache-cleaner
 
-  # Install specific version to /usr/local/bin
-  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sudo sh -s -- -b /usr/local/bin v1.2.3
+  # Install specific version
+  curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin v1.2.3
+
+Note: Make sure your bin directory is in PATH:
+  export PATH="\$HOME/.local/bin:\$PATH"
 EOF
 }
 
@@ -74,18 +81,41 @@ esac
 
 # Determine BIN_DIR
 if [ -z "$BIN_DIR" ]; then
-  # Prefer GOBIN, fallback to GOPATH/bin
-  if command -v go >/dev/null 2>&1; then
-    BIN_DIR="$(go env GOBIN 2>/dev/null || true)"
-    if [ -z "$BIN_DIR" ]; then
-      GOPATH="$(go env GOPATH 2>/dev/null || true)"
-      [ -n "$GOPATH" ] || error "cannot determine GOPATH; set -b <bin_dir> explicitly"
-      BIN_DIR="$GOPATH/bin"
-    fi
-  else
-    # No Go; default to /usr/local/bin
-    BIN_DIR="/usr/local/bin"
+  # Check if Homebrew is available - recommend using it instead
+  if command -v brew >/dev/null 2>&1; then
+    cat >&2 <<EOF
+Error: Homebrew installation is recommended over direct installation.
+
+Please install using Homebrew instead:
+
+    brew tap markcallen/cache-cleaner
+    brew install cache-cleaner
+
+If you prefer direct installation, specify an installation directory:
+
+    curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
+
+For more information, visit:
+    https://github.com/markcallen/cache-cleaner
+EOF
+    exit 1
   fi
+
+  # No Homebrew - require explicit -b flag
+  cat >&2 <<EOF
+Error: Installation directory must be specified with -b flag.
+
+Example:
+    curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
+
+Make sure the directory is in your PATH:
+    export PATH="\$HOME/.local/bin:\$PATH"
+
+Alternatively, if you have Homebrew, use:
+    brew tap markcallen/cache-cleaner
+    brew install cache-cleaner
+EOF
+  exit 1
 fi
 
 # Determine VERSION

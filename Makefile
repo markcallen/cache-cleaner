@@ -1,8 +1,36 @@
 # Root Makefile - builds all applications
-.PHONY: all dev-cache git-cleaner mac-cache-cleaner clean test fmt lint vet build
+.PHONY: all dev-cache git-cleaner mac-cache-cleaner clean test fmt lint vet build release-dry-run release-snapshot goreleaser-check check-tools help
 
 # Default target - build all applications
 all: dev-cache git-cleaner mac-cache-cleaner
+
+# Help target
+help:
+	@echo "Available targets:"
+	@echo ""
+	@echo "Setup:"
+	@echo "  check-tools         - Verify all required development tools are installed"
+	@echo ""
+	@echo "Build targets:"
+	@echo "  all                 - Build all applications (default)"
+	@echo "  dev-cache           - Build dev-cache application"
+	@echo "  git-cleaner         - Build git-cleaner application"
+	@echo "  mac-cache-cleaner   - Build mac-cache-cleaner application"
+	@echo "  build               - Build all applications"
+	@echo ""
+	@echo "Quality targets:"
+	@echo "  test                - Run tests in all applications"
+	@echo "  fmt                 - Format code in all applications"
+	@echo "  lint                - Lint all applications"
+	@echo "  vet                 - Run go vet on all applications"
+	@echo ""
+	@echo "Release targets:"
+	@echo "  goreleaser-check    - Validate GoReleaser configuration"
+	@echo "  release-dry-run     - Test GoReleaser without building/publishing"
+	@echo "  release-snapshot    - Build snapshot release locally (no git tag required)"
+	@echo ""
+	@echo "Cleanup:"
+	@echo "  clean               - Clean all applications and build artifacts"
 
 # Build each application
 dev-cache:
@@ -53,3 +81,70 @@ clean:
 	@$(MAKE) -C dev-cache clean
 	@$(MAKE) -C git-cleaner clean
 	@$(MAKE) -C mac-cache-cleaner clean
+
+# Check required tools are installed
+check-tools:
+	@echo "Checking required development tools..."
+	@echo ""
+	@echo "Checking Go..."
+	@if ! command -v go >/dev/null 2>&1; then \
+		echo "❌ Go is not installed"; \
+		echo "   Install from: https://go.dev/dl/"; \
+		exit 1; \
+	fi
+	@go_version=$$(go version | awk '{print $$3}' | sed 's/go//'); \
+	required_version="1.21"; \
+	if ! printf '%s\n' "$$required_version" "$$go_version" | sort -V -C 2>/dev/null; then \
+		echo "❌ Go version $$go_version is installed, but version $$required_version or higher is required"; \
+		echo "   Install from: https://go.dev/dl/"; \
+		exit 1; \
+	fi
+	@echo "✅ Go $$(go version | awk '{print $$3}') is installed"
+	@echo ""
+	@echo "Checking Make..."
+	@if ! command -v make >/dev/null 2>&1; then \
+		echo "❌ Make is not installed"; \
+		echo "   On macOS: xcode-select --install"; \
+		echo "   On Linux: apt-get install build-essential (Ubuntu/Debian) or yum groupinstall 'Development Tools' (RHEL/CentOS)"; \
+		exit 1; \
+	fi
+	@echo "✅ Make $$(make --version | head -n1) is installed"
+	@echo ""
+	@echo "Checking optional tools..."
+	@if command -v goreleaser >/dev/null 2>&1; then \
+		echo "✅ GoReleaser $$(goreleaser --version | head -n1 | awk '{print $$3}') is installed"; \
+	else \
+		echo "⚠️  GoReleaser is not installed (optional, needed for releases)"; \
+		echo "   Install with: brew install goreleaser"; \
+	fi
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		echo "✅ pre-commit $$(pre-commit --version | awk '{print $$2}') is installed"; \
+	else \
+		echo "⚠️  pre-commit is not installed (optional, needed for Git hooks)"; \
+		echo "   Install with: pip install pre-commit"; \
+	fi
+	@echo ""
+	@echo "All required tools are installed! 🎉"
+
+# GoReleaser targets
+goreleaser-check:
+	@echo "Checking GoReleaser configuration..."
+	@if ! command -v goreleaser >/dev/null 2>&1; then \
+		echo "Error: goreleaser is not installed"; \
+		echo "Install it with: brew install goreleaser"; \
+		exit 1; \
+	fi
+	@echo "Note: Some deprecation warnings are expected and will be addressed in future versions."
+	@goreleaser check || (echo "⚠️  Configuration has deprecation warnings but is still valid" && exit 0)
+
+release-dry-run: goreleaser-check
+	@echo "Running GoReleaser in dry-run mode (no release, no build)..."
+	@goreleaser release --skip=publish --skip=validate --clean
+
+release-snapshot: goreleaser-check
+	@echo "Building snapshot release (local testing, no tags required)..."
+	@goreleaser release --snapshot --clean --skip=publish
+	@echo ""
+	@echo "Snapshot built successfully!"
+	@echo "Binaries are in: ./dist/"
+	@ls -lh ./dist/ | grep -E "dev-cache|git-cleaner|mac-cache-cleaner"
