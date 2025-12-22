@@ -109,8 +109,8 @@ changelog:
       order: 999
 
 # Homebrew tap configuration
-# Note: "brews" is deprecated but still functional. Will migrate to "homebrews" in future.
-brews:
+# Using the recommended "homebrews" key (replaces deprecated "brews").
+homebrews:
   - name: cache-cleaner
     # Use the cache-cleaner archive which includes all binaries
     ids:
