@@ -135,7 +135,7 @@ goreleaser-check:
 		exit 1; \
 	fi
 	@echo "Note: Some deprecation warnings are expected and will be addressed in future versions."
-	@goreleaser check || (echo "⚠️  Configuration has deprecation warnings but is still valid" && exit 0)
+	@goreleaser check
 
 release-dry-run: goreleaser-check
 	@echo "Running GoReleaser in dry-run mode (no release, no build)..."
