@@ -39,3 +39,12 @@ repos:
         args: ["-p", "mac-cache-cleaner"]
         files: "^mac-cache-cleaner/.*"
         stages: ["pre-commit"]
+
+  - repo: local
+    hooks:
+      - id: goreleaser-check
+        name: GoReleaser Check
+        entry: goreleaser check
+        language: system
+        pass_filenames: false
+        files: \.goreleaser\.yaml$
