@@ -13,8 +13,8 @@ usage() {
 Install cache-cleaner tools
 
 RECOMMENDED: Use Homebrew instead of this script:
-  brew tap markcallen/cache-cleaner
-  brew install cache-cleaner
+  brew tap ${REPO_OWNER}/${REPO_NAME}
+  brew install ${REPO_NAME}
 
 Usage:
   install.sh -b <bin_dir> [-a <app>] [<version>]
@@ -88,15 +88,15 @@ Error: Homebrew installation is recommended over direct installation.
 
 Please install using Homebrew instead:
 
-    brew tap markcallen/cache-cleaner
-    brew install cache-cleaner
+    brew tap ${REPO_OWNER}/${REPO_NAME}
+    brew install ${REPO_NAME}
 
 If you prefer direct installation, specify an installation directory:
 
-    curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
+    curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
 
 For more information, visit:
-    https://github.com/markcallen/cache-cleaner
+    https://github.com/${REPO_OWNER}/${REPO_NAME}
 EOF
     exit 1
   fi
@@ -106,14 +106,14 @@ EOF
 Error: Installation directory must be specified with -b flag.
 
 Example:
-    curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
+    curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
 
 Make sure the directory is in your PATH:
     export PATH="\$HOME/.local/bin:\$PATH"
 
 Alternatively, if you have Homebrew, use:
-    brew tap markcallen/cache-cleaner
-    brew install cache-cleaner
+    brew tap ${REPO_OWNER}/${REPO_NAME}
+    brew install ${REPO_NAME}
 EOF
   exit 1
 fi
