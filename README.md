@@ -112,6 +112,14 @@ make lint
 make vet
 ```
 
+## Questions?
+
+Open an issue on GitHub: https://github.com/markcallen/cache-cleaner/issues
+
 ## License
 
-See [LICENSE](./LICENSE).
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Author
+
+Mark C Allen ([@markcallen](https://github.com/markcallen))
