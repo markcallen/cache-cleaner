@@ -66,14 +66,8 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  # Individual binaries for direct download
-  - id: binaries
-    format: binary
-    name_template: "{{ .Binary }}-darwin-{{ .Arch }}"
-
   # Combined tarball for Homebrew
   - id: cache-cleaner
-    format: tar.gz
     name_template: "cache-cleaner-{{ .Version }}-darwin-{{ .Arch }}"
     files:
       - none*  # Only include binaries, no extra files
@@ -109,38 +103,25 @@ changelog:
       order: 999
 
 # Homebrew tap configuration
-# Using the recommended "homebrews" key (replaces deprecated "brews").
-homebrews:
+homebrew_casks:
   - name: cache-cleaner
     # Use the cache-cleaner archive which includes all binaries
     ids:
       - cache-cleaner
+
+    # List all three binaries to install
+    binaries:
+      - dev-cache
+      - git-cleaner
+      - mac-cache-cleaner
+
     repository:
       owner: markcallen
       name: homebrew-cache-cleaner
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: https://github.com/markcallen/cache-cleaner
     description: "Collection of Go CLI tools for reclaiming disk space on development machines"
-    license: MIT
-
-    # Install all three binaries
-    # Note: GoReleaser will automatically detect the binaries from the builds
-    install: |
-      bin.install "dev-cache"
-      bin.install "git-cleaner"
-      bin.install "mac-cache-cleaner"
-
-    # Test all three binaries
-    test: |
-      assert_match version.to_s, shell_output("#{bin}/dev-cache --version")
-      assert_match version.to_s, shell_output("#{bin}/git-cleaner --version")
-      assert_match version.to_s, shell_output("#{bin}/mac-cache-cleaner --version")
-
-    # Dependencies (if any)
-    # dependencies:
-    #   - name: go
-    #     type: optional
 
     # Caveats to display after installation
     caveats: |
@@ -155,6 +136,16 @@ homebrews:
         mac-cache-cleaner --init
 
       Documentation: https://github.com/markcallen/cache-cleaner
+
+    # Remove quarantine attribute on macOS since binaries are not signed/notarized
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dev-cache"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/git-cleaner"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/mac-cache-cleaner"]
+          end
 
 release:
   github:
