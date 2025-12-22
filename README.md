@@ -36,6 +36,8 @@ curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/insta
 curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b $HOME/.local/bin -a mac-cache-cleaner
 ```
 
+**Important**: The install script requires the `-b` flag to specify an installation directory. If you omit the `-b` flag, the script will error out and recommend using Homebrew instead.
+
 **Note**: Make sure `~/.local/bin` is in your PATH:
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
