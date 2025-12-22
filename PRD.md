@@ -356,3 +356,154 @@ All three apps support:
 - Explicit confirmation required for destructive operations
 - Clear reporting of what will be affected
 - Error handling that doesn't silently fail
+
+---
+
+## Development and Release Workflow
+
+### Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `help` | Show all available make targets |
+| `all` | Build all applications (default) |
+| `dev-cache` | Build dev-cache application only |
+| `git-cleaner` | Build git-cleaner application only |
+| `mac-cache-cleaner` | Build mac-cache-cleaner application only |
+| `build` | Build all applications |
+| `test` | Run tests in all applications |
+| `fmt` | Format code in all applications |
+| `lint` | Lint all applications |
+| `vet` | Run go vet on all applications |
+| `goreleaser-check` | Validate GoReleaser configuration |
+| `release-dry-run` | Test GoReleaser without building/publishing |
+| `release-snapshot` | Build snapshot release locally (no git tag required) |
+| `clean` | Clean all applications and build artifacts |
+
+### Testing a Release Locally
+
+Before creating an actual release, you can test the entire build process:
+
+```bash
+# Verify GoReleaser configuration
+make goreleaser-check
+
+# Build a local snapshot (no git tag required)
+make release-snapshot
+
+# Artifacts will be in ./dist/
+# - Individual binaries: dev-cache-darwin-amd64, etc.
+# - Homebrew tarball: cache-cleaner-VERSION-darwin-{amd64,arm64}.tar.gz
+# - Homebrew formula: dist/homebrew/Formula/cache-cleaner.rb
+```
+
+### Creating a Release
+
+1. **Ensure all changes are committed and pushed**
+   ```bash
+   git status
+   git add .
+   git commit -m "Prepare release v1.0.0"
+   git push origin main
+   ```
+
+2. **Create and push a version tag**
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+3. **GitHub Actions automatically:**
+   - Validates GoReleaser configuration
+   - Builds all 6 binaries (3 apps × 2 architectures)
+   - Creates GitHub release with:
+     - Individual binaries for direct download
+     - Combined tarballs for Homebrew
+     - Checksums for verification
+     - Auto-generated changelog
+   - Updates Homebrew formula in `markcallen/homebrew-cache-cleaner`
+   - Commits formula changes with proper checksums
+
+4. **Verify the release:**
+   - Check GitHub Releases: https://github.com/markcallen/cache-cleaner/releases
+   - Check Homebrew formula: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
+   - Test installation: `brew upgrade cache-cleaner`
+
+### GoReleaser Configuration
+
+The project uses GoReleaser for automated releases with the following configuration:
+
+**Builds:**
+- 3 separate builds (one per application)
+- Each build specifies `dir` to point to the app directory
+- Main file is `./main.go` relative to the app directory
+- CGO is disabled for static binaries
+- Targets darwin/amd64 and darwin/arm64
+
+**Archives:**
+- Individual binaries for direct download (format: `{app}-darwin-{arch}`)
+- Combined tarball for Homebrew (format: `cache-cleaner-{version}-darwin-{arch}.tar.gz`)
+- The tarball includes all three binaries
+
+**Homebrew Integration:**
+- Automatically generates formula in `markcallen/homebrew-cache-cleaner`
+- Formula installs all three binaries
+- Includes caveats with quick start instructions
+- Includes version tests for all binaries
+
+**Changelog:**
+- Auto-generated from Git commits
+- Grouped by type (Features, Bug Fixes, Performance, etc.)
+- Excludes internal changes (docs, tests, ci)
+
+### Distribution Strategy
+
+**Primary: Homebrew (Recommended)**
+```bash
+brew tap markcallen/cache-cleaner
+brew install cache-cleaner
+```
+
+Benefits:
+- Automatic PATH configuration
+- Easy updates via `brew upgrade`
+- No sudo required
+- Standard for macOS users
+- Handles dependencies automatically
+
+**Secondary: Direct Download**
+```bash
+# Via install script (requires -b flag)
+curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b $HOME/.local/bin
+
+# Or download binaries directly from GitHub Releases
+# https://github.com/markcallen/cache-cleaner/releases
+```
+
+**install.sh Behavior:**
+- Requires `-b` flag to specify installation directory
+- Errors if Homebrew is detected (recommends using `brew install`)
+- Downloads pre-built binaries from GitHub Releases
+- Supports version selection
+- Supports individual app installation with `-a` flag
+
+### Required Setup for Maintainers
+
+To enable automated Homebrew releases:
+
+1. **Create tap repository:**
+   - Repository name: `homebrew-cache-cleaner`
+   - Location: `github.com/markcallen/homebrew-cache-cleaner`
+   - Structure: `Formula/` directory at root
+
+2. **Configure GitHub token:**
+   - Create Personal Access Token with `public_repo` scope
+   - Add as repository secret: `HOMEBREW_TAP_GITHUB_TOKEN`
+   - Token needs write access to tap repository
+
+3. **Verify workflow:**
+   - GitHub Actions workflow is in `.github/workflows/release.yml`
+   - Uses `goreleaser/goreleaser-action@v6`
+   - Requires Go 1.22.x
+
+See `HOMEBREW_TAP_SETUP.md` for detailed instructions.

@@ -15,17 +15,33 @@ Cross-platform tool that finds `.git` directories, reports their sizes, and opti
 
 ## Install
 
-Install all 3 apps (or specific ones) with the install script:
+### Recommended: Homebrew (macOS)
 
-Install all 3 apps (latest)
 ```bash
-curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s --
+brew tap markcallen/cache-cleaner
+brew install cache-cleaner
 ```
 
-Install specific app only
+This installs all 3 apps: `dev-cache`, `git-cleaner`, and `mac-cache-cleaner`.
+
+### Alternative: Direct Download
+
+If you don't have Homebrew, you can use the install script:
+
 ```bash
-curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -a mac-cache-cleaner
+# Install all 3 apps to ~/.local/bin
+curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b $HOME/.local/bin
+
+# Install specific app only
+curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b $HOME/.local/bin -a mac-cache-cleaner
 ```
+
+**Note**: Make sure `~/.local/bin` is in your PATH:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add this to your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
 ## Quick Start
 
@@ -60,6 +76,22 @@ Each app has detailed documentation in its own directory:
 - [`git-cleaner/README.md`](git-cleaner/README.md) - Full git-cleaner docs
 
 ## Development
+
+### Prerequisites
+
+To develop on this project, you need the following tools installed:
+
+- **Go** 1.21 or higher ([download](https://go.dev/dl/))
+- **Make** (typically pre-installed on macOS/Linux)
+- **GoReleaser** (optional, for releases): `brew install goreleaser`
+- **pre-commit** (optional, for Git hooks): `pip install pre-commit`
+
+You can verify all required tools are installed by running:
+```bash
+make check-tools
+```
+
+### Building
 
 Build all apps:
 ```bash
