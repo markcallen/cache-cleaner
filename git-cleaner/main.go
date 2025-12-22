@@ -14,6 +14,13 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
+// ----- Version info -----
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // ----- CLI flags -----
 var (
 	flagScan  = flag.String("scan", "", "Directory to scan for .git directories")
@@ -44,6 +51,15 @@ func human(n int64) string {
 		}
 	}
 	return fmt.Sprintf("%.2f TB", v/1024)
+}
+
+func checkVersionFlag() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "-version" || arg == "--version" {
+			return true
+		}
+	}
+	return false
 }
 
 func inspectPath(root string) (Finding, error) {
@@ -162,6 +178,11 @@ func displayResults(findings []Finding, total int64) {
 }
 
 func main() {
+	if checkVersionFlag() {
+		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
+		return
+	}
+
 	flag.Parse()
 
 	// Determine scan path

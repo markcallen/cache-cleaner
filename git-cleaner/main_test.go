@@ -6,6 +6,36 @@ import (
 	"testing"
 )
 
+func TestCheckVersionFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"no args", []string{"program"}, false},
+		{"version flag", []string{"program", "--version"}, true},
+		{"version flag short", []string{"program", "-version"}, true},
+		{"other flags", []string{"program", "--scan", "/tmp"}, false},
+		{"version with other flags", []string{"program", "--scan", "/tmp", "--version"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save original os.Args
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+
+			// Set test args
+			os.Args = tt.args
+
+			got := checkVersionFlag()
+			if got != tt.want {
+				t.Errorf("checkVersionFlag() with args %v = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHuman(t *testing.T) {
 	tests := []struct {
 		in   int64

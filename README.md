@@ -68,6 +68,38 @@ git-cleaner --scan ~/src             # find and report .git sizes
 git-cleaner --scan ~/src --clean     # optimize with git gc
 ```
 
+## Troubleshooting
+
+### Formula not found
+
+If `brew install cache-cleaner` fails with "No available formula":
+
+1. Update Homebrew and retry:
+   ```bash
+   brew update
+   brew tap markcallen/cache-cleaner
+   brew install cache-cleaner
+   ```
+
+2. Verify the formula exists at: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
+
+### Installation issues
+
+If you encounter issues during installation:
+
+1. Check that Homebrew is up to date:
+   ```bash
+   brew update
+   brew doctor
+   ```
+
+2. Try installing with verbose output to see detailed logs:
+   ```bash
+   brew install cache-cleaner --verbose
+   ```
+
+3. If problems persist, check the [GitHub Issues](https://github.com/markcallen/cache-cleaner/issues)
+
 ## Documentation
 
 Each app has detailed documentation in its own directory:
@@ -110,6 +142,66 @@ Run tests/lint for all:
 make test
 make lint
 make vet
+```
+
+### Release
+
+**What should happen:**
+
+1. GitHub Actions will trigger the release workflow
+2. GoReleaser will:
+   - Build all 3 binaries for darwin/amd64 and darwin/arm64
+   - Create a GitHub release with binaries attached
+   - Generate a Homebrew cask
+   - Push the formula to `homebrew-cache-cleaner` repository
+
+3. Check the results:
+   - Release: https://github.com/markcallen/cache-cleaner/releases
+   - Formula: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
+   - Actions log: https://github.com/markcallen/cache-cleaner/actions
+
+
+Testing locally
+
+```bash
+# Install GoReleaser for local testing
+brew install goreleaser
+
+# Test the configuration
+make goreleaser-check
+
+# Test a snapshot build (without releasing)
+make release-snapshot
+
+# Test release process without building
+make release-dry-run
+```
+
+### Testing Release After First Release
+
+After creating your first release, verify the installation works correctly:
+
+```bash
+# Add the tap and install
+brew tap markcallen/cache-cleaner
+brew install cache-cleaner --verbose
+
+# Verify all binaries are installed
+which dev-cache
+which git-cleaner
+which mac-cache-cleaner
+
+# Test functionality
+dev-cache --version
+git-cleaner --version
+mac-cache-cleaner --version
+
+# Audit the formula
+brew audit --strict --online cache-cleaner
+
+# Test uninstall (optional)
+brew uninstall cache-cleaner
+brew untap markcallen/cache-cleaner
 ```
 
 ## Questions?
