@@ -429,6 +429,46 @@ make release-snapshot
    - Check Homebrew formula: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
    - Test installation: `brew upgrade cache-cleaner`
 
+### Troubleshooting Releases
+
+**Formula not found after release:**
+
+If `brew install cache-cleaner` fails with "No available formula":
+
+1. Check that the formula was pushed to the tap:
+   - Visit: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
+   - You should see `cache-cleaner.rb`
+
+2. Update Homebrew and retry:
+   ```bash
+   brew update
+   brew tap markcallen/cache-cleaner
+   brew install cache-cleaner
+   ```
+
+**Token errors in GitHub Actions:**
+
+If you see authentication errors in the release workflow:
+
+1. Verify the secret exists:
+   - Go to: https://github.com/markcallen/cache-cleaner/settings/secrets/actions
+   - Look for `HOMEBREW_TAP_GITHUB_TOKEN`
+
+2. Verify the token has the correct permissions:
+   - It needs `public_repo` scope
+   - It must not be expired
+
+3. Regenerate the token if needed and update the secret
+
+**Checksum mismatches:**
+
+If users report checksum errors:
+
+1. The formula might be out of sync with the release
+2. Re-run the release workflow or manually update checksums
+3. Check that GoReleaser successfully updated the tap
+4. Verify the formula at: https://github.com/markcallen/homebrew-cache-cleaner/tree/main/Formula
+
 ### GoReleaser Configuration
 
 The project uses GoReleaser for automated releases with the following configuration:
@@ -492,18 +532,73 @@ curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/insta
 To enable automated Homebrew releases:
 
 1. **Create tap repository:**
-   - Repository name: `homebrew-cache-cleaner`
-   - Location: `github.com/markcallen/homebrew-cache-cleaner`
-   - Structure: `Formula/` directory at root
+   - Go to: https://github.com/new
+   - Repository name: `homebrew-cache-cleaner` (must start with `homebrew-`)
+   - Description: "Homebrew tap for cache-cleaner tools"
+   - Visibility: Public
+   - Initialize with README
+   - After creation, clone and create `Formula/` directory:
+     ```bash
+     git clone git@github.com:markcallen/homebrew-cache-cleaner.git
+     cd homebrew-cache-cleaner
+     mkdir Formula
+     git add Formula
+     git commit -m "Add Formula directory"
+     git push origin main
+     ```
 
 2. **Configure GitHub token:**
-   - Create Personal Access Token with `public_repo` scope
-   - Add as repository secret: `HOMEBREW_TAP_GITHUB_TOKEN`
-   - Token needs write access to tap repository
+   - Go to: https://github.com/settings/tokens/new
+   - Note: "GoReleaser Homebrew Tap"
+   - Expiration: Choose appropriate expiration
+   - Scopes: Select `public_repo` (allows read/write to public repositories)
+   - Click "Generate token"
+   - **IMPORTANT**: Copy the token immediately (you won't see it again)
+   - Add as repository secret in the cache-cleaner repository:
+     - Go to: https://github.com/markcallen/cache-cleaner/settings/secrets/actions
+     - Click "New repository secret"
+     - Name: `HOMEBREW_TAP_GITHUB_TOKEN`
+     - Value: Paste the token you copied
+     - Click "Add secret"
 
 3. **Verify workflow:**
    - GitHub Actions workflow is in `.github/workflows/release.yml`
    - Uses `goreleaser/goreleaser-action@v6`
    - Requires Go 1.22.x
 
-See `HOMEBREW_TAP_SETUP.md` for detailed instructions.
+4. **Test after first release:**
+   ```bash
+   # Add the tap and install
+   brew tap markcallen/cache-cleaner
+   brew install cache-cleaner --verbose
+
+   # Verify all binaries are installed
+   which dev-cache
+   which git-cleaner
+   which mac-cache-cleaner
+
+   # Test functionality
+   dev-cache --version
+   git-cleaner --version
+   mac-cache-cleaner --version
+
+   # Audit the formula
+   brew audit --strict --online cache-cleaner
+
+   # Test uninstall (optional)
+   brew uninstall cache-cleaner
+   brew untap markcallen/cache-cleaner
+   ```
+
+### Future: Migrating to Homebrew Core
+
+Once the formula is stable and has users, the project can be submitted to homebrew-core for wider distribution:
+
+1. Review the [Homebrew contribution guidelines](https://docs.brew.sh/How-To-Open-a-Homebrew-Pull-Request)
+2. Ensure the formula passes `brew audit --strict --online`
+3. Submit a PR to [Homebrew/homebrew-core](https://github.com/Homebrew/homebrew-core)
+4. After acceptance, users can install with just:
+   ```bash
+   brew install cache-cleaner
+   ```
+   (no tap required)

@@ -18,6 +18,13 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+// ----- Version info -----
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // ----- Command whitelist -----
 
 // allowedCommandSubstitutions defines which commands are allowed to be executed
@@ -128,6 +135,15 @@ func ensureDir(p string) error { return os.MkdirAll(filepath.Dir(p), 0o755) }
 
 func home() string           { h, _ := os.UserHomeDir(); return h }
 func expand(p string) string { return os.ExpandEnv(strings.ReplaceAll(p, "~", home())) }
+
+func checkVersionFlag() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "-version" || arg == "--version" {
+			return true
+		}
+	}
+	return false
+}
 
 func human(n int64) string {
 	if n < 1024 {
@@ -729,6 +745,11 @@ func checkTools(cfg *Config) {
 // ----- Main -----
 
 func main() {
+	if checkVersionFlag() {
+		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
+		return
+	}
+
 	flag.Parse()
 	// Detect if no command-line args were provided (program name only)
 	noArgs := len(os.Args) == 1

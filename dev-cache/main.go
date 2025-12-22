@@ -17,6 +17,13 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+// ----- Version info -----
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // ----- CLI flags -----
 var (
 	flagClean  = flag.Bool("clean", false, "Delete found cache directories")
@@ -92,6 +99,15 @@ func ensureDir(p string) error { return os.MkdirAll(filepath.Dir(p), 0o755) }
 
 func home() string           { h, _ := os.UserHomeDir(); return h }
 func expand(p string) string { return os.ExpandEnv(strings.ReplaceAll(p, "~", home())) }
+
+func checkVersionFlag() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "-version" || arg == "--version" {
+			return true
+		}
+	}
+	return false
+}
 
 func human(n int64) string {
 	if n < 1024 {
@@ -226,6 +242,11 @@ func loadConfig(path string) (*Config, error) {
 // ----- Main -----
 
 func main() {
+	if checkVersionFlag() {
+		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
+		return
+	}
+
 	flag.Parse()
 
 	if *flagInit {
