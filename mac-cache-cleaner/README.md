@@ -1,5 +1,11 @@
 # mac-cache-cleaner
 
+[![CI](https://github.com/markcallen/cache-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/markcallen/cache-cleaner/actions/workflows/ci.yml)
+[![Release](https://github.com/markcallen/cache-cleaner/actions/workflows/release.yml/badge.svg)](https://github.com/markcallen/cache-cleaner/actions/workflows/release.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/markcallen/cache-cleaner?filename=dev-cache%2Fgo.mod)](https://go.dev/)
+[![License](https://img.shields.io/github/license/markcallen/cache-cleaner)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/markcallen/cache-cleaner)](https://github.com/markcallen/cache-cleaner/releases)
+
 A macOS-specific Go CLI tool that scans and cleans developer tool caches (Docker, npm, Homebrew, etc.) using **safe, official cleanup commands**—never `rm -rf`.
 
 ## Features
