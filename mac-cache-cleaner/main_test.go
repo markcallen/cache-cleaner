@@ -117,11 +117,11 @@ func TestDefaultConfigPathEmptyHome(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	oldUserProfile := os.Getenv("USERPROFILE")
 	defer func() {
-		os.Setenv("HOME", oldHome)
-		os.Setenv("USERPROFILE", oldUserProfile)
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("USERPROFILE", oldUserProfile)
 	}()
-	os.Unsetenv("HOME")
-	os.Unsetenv("USERPROFILE")
+	_ = os.Unsetenv("HOME")
+	_ = os.Unsetenv("USERPROFILE")
 	p := defaultConfigPath()
 	if p == "" {
 		t.Fatal("defaultConfigPath should not return empty")
@@ -288,7 +288,7 @@ func TestRunVersion(t *testing.T) {
 	defer func() { os.Stdout = old }()
 
 	code := run()
-	w.Close()
+	_ = w.Close()
 	out, _ := io.ReadAll(r)
 	if code != 0 {
 		t.Fatalf("run() returned %d", code)
@@ -325,7 +325,7 @@ func TestRunJSON(t *testing.T) {
 	defer func() { os.Stdout = old }()
 
 	code := run()
-	w.Close()
+	_ = w.Close()
 	out, _ := io.ReadAll(r)
 	if code != 0 {
 		t.Fatalf("run() returned %d, output: %s", code, out)
@@ -405,12 +405,12 @@ func TestCheckTools(t *testing.T) {
 	defer func() {
 		testMode = false
 		os.Stdout = old
-		w.Close()
+		_ = w.Close()
 	}()
 
 	checkToolsWithFlags(cfg, cfgPath, "all")
 
-	w.Close()
+	_ = w.Close()
 	out, _ := io.ReadAll(r)
 	if len(out) == 0 {
 		t.Fatal("expected checkTools to produce output")
@@ -588,11 +588,11 @@ func TestRunFirstScanDocker(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	defer func() { os.Stdout = old; w.Close() }()
+	defer func() { os.Stdout = old; _ = w.Close() }()
 
 	totals := runFirstScan(targets, rep)
 
-	w.Close()
+	_ = w.Close()
 	_, _ = io.ReadAll(r)
 	// docker may fail if not installed - totals may be 0
 	_ = totals["docker"]
@@ -613,11 +613,11 @@ func TestRunFirstScan(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	defer func() { os.Stdout = old; w.Close() }()
+	defer func() { os.Stdout = old; _ = w.Close() }()
 
 	totals := runFirstScan(targets, rep)
 
-	w.Close()
+	_ = w.Close()
 	out, _ := io.ReadAll(r)
 	if !bytes.Contains(out, []byte("Scanning [test]")) {
 		t.Fatalf("expected scan output, got: %s", out)
@@ -671,11 +671,11 @@ func TestRunFirstScanGlobError(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	defer func() { os.Stdout = old; w.Close() }()
+	defer func() { os.Stdout = old; _ = w.Close() }()
 
 	totals := runFirstScan(targets, rep)
 
-	w.Close()
+	_ = w.Close()
 	_, _ = io.ReadAll(r)
 	if totals["bad"] != 0 {
 		t.Fatalf("expected 0 for bad glob, got %d", totals["bad"])
@@ -739,7 +739,7 @@ func TestExpandGlobsBrewCacheNoBrew(t *testing.T) {
 	// When PATH is empty, brew --cache falls back to ~/Library/Caches/Homebrew
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", "")
-	defer os.Setenv("PATH", oldPath)
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
 
 	paths, err := expandGlobs("$(brew --cache)")
 	if err != nil {

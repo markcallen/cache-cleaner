@@ -457,7 +457,7 @@ func TestDisplayDetailed(t *testing.T) {
 	}
 	displayDetailed(findings, 1500)
 
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	out := buf.String()
@@ -477,7 +477,7 @@ func TestDisplayDetailedNoCache(t *testing.T) {
 		{Path: "/proj2", ProjectRoot: "/proj2", SizeBytes: 0, Items: 0, Pattern: "", Language: "no language found"},
 	}
 	displayDetailed(findings, 0)
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	if buf.Len() == 0 {
@@ -497,7 +497,7 @@ func TestDisplayDetailedWithError(t *testing.T) {
 		{Path: "/proj1/bad", ProjectRoot: "/proj1", SizeBytes: 0, Items: 0, Pattern: "node_modules", Language: "node", Err: "permission denied"},
 	}
 	displayDetailed(findings, 1000)
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	if buf.Len() == 0 {
@@ -553,11 +553,11 @@ func TestDefaultConfigPathEmptyHome(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	oldUserProfile := os.Getenv("USERPROFILE")
 	defer func() {
-		os.Setenv("HOME", oldHome)
-		os.Setenv("USERPROFILE", oldUserProfile)
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("USERPROFILE", oldUserProfile)
 	}()
-	os.Unsetenv("HOME")
-	os.Unsetenv("USERPROFILE")
+	_ = os.Unsetenv("HOME")
+	_ = os.Unsetenv("USERPROFILE")
 	// UserHomeDir may still return something from other sources; just verify we get a path
 	p := defaultConfigPath()
 	if p == "" {

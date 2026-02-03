@@ -300,7 +300,7 @@ func TestDisplayResults(t *testing.T) {
 	}
 	displayResults(findings, 3072)
 
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	out := buf.String()
@@ -319,7 +319,7 @@ func TestDisplayResultsEmpty(t *testing.T) {
 	defer func() { os.Stdout = old }()
 
 	displayResults([]Finding{}, 0)
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 	if !strings.Contains(buf.String(), "No .git directories found") {
@@ -376,7 +376,7 @@ func TestExpandScanPath(t *testing.T) {
 			if !strings.HasSuffix(got, "tmp") {
 				t.Fatalf("expandScanPath(~/tmp) = %q", got)
 			}
-			os.RemoveAll(subDir)
+			_ = os.RemoveAll(subDir)
 		}
 		// Expand "~" only (home dir)
 		got, err = expandScanPath("~")
@@ -390,8 +390,8 @@ func TestExpandScanPath(t *testing.T) {
 	}
 
 	// Env var expansion
-	os.Setenv("TEST_SCAN_DIR", dir)
-	defer os.Unsetenv("TEST_SCAN_DIR")
+	_ = os.Setenv("TEST_SCAN_DIR", dir)
+	defer func() { _ = os.Unsetenv("TEST_SCAN_DIR") }()
 	got, err = expandScanPath("$TEST_SCAN_DIR")
 	if err != nil {
 		t.Fatalf("expandScanPath failed: %v", err)
