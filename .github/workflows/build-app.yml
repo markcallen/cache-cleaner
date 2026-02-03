@@ -32,10 +32,6 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.6.0
 
-      - name: Run tests
-        working-directory: ${{ inputs.app_name }}
-        run: make test
-
       - name: Run linter
         working-directory: ${{ inputs.app_name }}
         run: make lint
@@ -53,6 +49,10 @@ jobs:
             git diff
             exit 1
           fi
+
+      - name: Run tests with coverage
+        working-directory: ${{ inputs.app_name }}
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Build for Linux amd64
         working-directory: ${{ inputs.app_name }}
@@ -84,3 +84,11 @@ jobs:
           name: ${{ inputs.app_name }}-binaries
           path: ${{ inputs.app_name }}/build/*
           retention-days: 7
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: markcallen/cache-cleaner
+          files: ${{ inputs.app_name }}/coverage.out
+          flags: ${{ inputs.app_name }}

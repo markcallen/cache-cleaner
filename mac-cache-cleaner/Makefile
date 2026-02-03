@@ -41,7 +41,7 @@ lint:
 	@if [ -x "$(GOBIN)/golangci-lint" ]; then \
 		"$(GOBIN)/golangci-lint" run --tests; \
 	else \
-		command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --fast || (echo "golangci-lint not found. Install with 'make install'."; exit 1) ; \
+		echo "golangci-lint not found. Run 'make install' to install (do not use Homebrew)."; exit 1; \
 	fi
 
 install:

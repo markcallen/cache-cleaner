@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +192,31 @@ func TestScanDirectory(t *testing.T) {
 	}
 }
 
+func TestScanDirectoryInspectPathError(t *testing.T) {
+	// .git dir that inspectPath might fail on (e.g. permission)
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	gitDir := filepath.Join(proj, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Make objects dir unreadable to cause walk error
+	objectsDir := filepath.Join(gitDir, "objects")
+	if err := os.MkdirAll(objectsDir, 0o000); err != nil {
+		t.Skip("cannot create restricted dir")
+	}
+	defer func() { _ = os.Chmod(objectsDir, 0o755) }()
+
+	findings := scanDirectory(root)
+	// Should still find the repo (inspectPath may return partial or error)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
 func TestScanDirectoryNoGitDirs(t *testing.T) {
 	root := t.TempDir()
 
@@ -235,5 +263,140 @@ func TestScanDirectoryNestedGit(t *testing.T) {
 	}
 	if findings[0].RepoPath != proj1 {
 		t.Fatalf("expected repo path %q, got %q", proj1, findings[0].RepoPath)
+	}
+}
+
+func TestRunGitGC(t *testing.T) {
+	// Create a real git repo and run gc
+	dir := t.TempDir()
+	if err := exec.Command("git", "init", dir).Run(); err != nil {
+		t.Skip("git not available or init failed:", err)
+	}
+	// Add a file so there's something to gc
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", dir, "add", "README").Run(); err != nil {
+		t.Skip("git add failed:", err)
+	}
+	if err := exec.Command("git", "-C", dir, "commit", "-m", "init").Run(); err != nil {
+		t.Skip("git commit failed:", err)
+	}
+
+	if err := runGitGC(dir); err != nil {
+		t.Fatalf("runGitGC failed: %v", err)
+	}
+}
+
+func TestDisplayResults(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	findings := []Finding{
+		{Path: "/repo1/.git", RepoPath: "/repo1", SizeBytes: 1024, Items: 10},
+		{Path: "/repo2/.git", RepoPath: "/repo2", SizeBytes: 2048, Items: 5},
+	}
+	displayResults(findings, 3072)
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	out := buf.String()
+	if !strings.Contains(out, "repo1") || !strings.Contains(out, "repo2") {
+		t.Fatalf("expected repo paths in output, got: %s", out)
+	}
+	if !strings.Contains(out, "1.00 KB") || !strings.Contains(out, "2.00 KB") {
+		t.Fatalf("expected size formatting in output, got: %s", out)
+	}
+}
+
+func TestDisplayResultsEmpty(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	displayResults([]Finding{}, 0)
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	if !strings.Contains(buf.String(), "No .git directories found") {
+		t.Fatalf("expected empty message, got: %s", buf.String())
+	}
+}
+
+func TestHumanTB(t *testing.T) {
+	got := human(1024 * 1024 * 1024 * 1024)
+	if !strings.Contains(got, "TB") {
+		t.Fatalf("human(1TB) = %q, expected TB unit", got)
+	}
+	// Test very large to hit all units in the loop
+	got2 := human(1024 * 1024 * 1024 * 1024 * 1024)
+	if !strings.Contains(got2, "TB") {
+		t.Fatalf("human(1PB) = %q, expected TB unit", got2)
+	}
+}
+
+func TestExpandScanPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Empty path
+	_, err := expandScanPath("")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+
+	// Non-existent path
+	_, err = expandScanPath(filepath.Join(dir, "nonexistent"))
+	if err == nil {
+		t.Fatal("expected error for non-existent path")
+	}
+
+	// Valid absolute path
+	got, err := expandScanPath(dir)
+	if err != nil {
+		t.Fatalf("expandScanPath failed: %v", err)
+	}
+	abs, _ := filepath.Abs(dir)
+	if got != abs {
+		t.Fatalf("expandScanPath = %q, want %q", got, abs)
+	}
+
+	// Expand ~ (if we can)
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		subDir := filepath.Join(home, "tmp")
+		if err := os.MkdirAll(subDir, 0o755); err == nil {
+			got, err = expandScanPath("~/tmp")
+			if err != nil {
+				t.Fatalf("expandScanPath failed: %v", err)
+			}
+			if !strings.HasSuffix(got, "tmp") {
+				t.Fatalf("expandScanPath(~/tmp) = %q", got)
+			}
+			_ = os.RemoveAll(subDir)
+		}
+		// Expand "~" only (home dir)
+		got, err = expandScanPath("~")
+		if err != nil {
+			t.Fatalf("expandScanPath(~) failed: %v", err)
+		}
+		homeAbs, _ := filepath.Abs(home)
+		if got != homeAbs {
+			t.Fatalf("expandScanPath(~) = %q, want %q", got, homeAbs)
+		}
+	}
+
+	// Env var expansion
+	_ = os.Setenv("TEST_SCAN_DIR", dir)
+	defer func() { _ = os.Unsetenv("TEST_SCAN_DIR") }()
+	got, err = expandScanPath("$TEST_SCAN_DIR")
+	if err != nil {
+		t.Fatalf("expandScanPath failed: %v", err)
+	}
+	if got != abs {
+		t.Fatalf("expandScanPath($TEST_SCAN_DIR) = %q, want %q", got, abs)
 	}
 }

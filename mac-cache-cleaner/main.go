@@ -20,9 +20,10 @@ import (
 
 // ----- Version info -----
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version  = "dev"
+	commit   = "none"
+	date     = "unknown"
+	testMode = false // when true, checkTools returns instead of os.Exit
 )
 
 // ----- Command whitelist -----
@@ -640,12 +641,131 @@ func runCmd(cmd []string) CmdResult {
 	return res
 }
 
+// populateCommands fills rep.Commands with command status for each target.
+func populateCommands(targets []Target, rep *Report) {
+	for _, t := range targets {
+		toolStatus := make(map[string]bool)
+		if len(t.Tools) > 0 {
+			for _, tool := range t.Tools {
+				installed, _, err := checkTool(tool)
+				toolStatus[tool.Name] = installed
+				if !installed {
+					installCmd := getInstallCommand(tool)
+					errMsg := fmt.Sprintf("Required tool '%s' is not installed or not in PATH", tool.Name)
+					if err != nil {
+						errMsg = fmt.Sprintf("Required tool '%s' version check failed: %v", tool.Name, err)
+					}
+					installGuidance := fmt.Sprintf("To install: %s", installCmd)
+					if tool.InstallNotes != "" {
+						installGuidance += " - " + tool.InstallNotes
+					}
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("[%s] %s. %s", t.Name, errMsg, installGuidance))
+				}
+			}
+		}
+
+		if len(t.Cmds) == 0 {
+			continue
+		}
+
+		for _, c := range t.Cmds {
+			found := false
+			errorMsg := ""
+
+			if len(c) > 0 {
+				if installed, ok := toolStatus[c[0]]; ok {
+					found = installed
+					if !installed {
+						errorMsg = fmt.Sprintf("tool '%s' not installed", c[0])
+					}
+				} else {
+					_, err := exec.LookPath(c[0])
+					found = err == nil
+					if !found {
+						errorMsg = "not found"
+					}
+				}
+			}
+
+			rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
+				Cmd:   c,
+				Found: found,
+				Error: errorMsg,
+			})
+		}
+	}
+}
+
+// runFirstScan scans all targets and populates rep.Findings. Returns beforeTotals map.
+func runFirstScan(targets []Target, rep *Report) map[string]uint64 {
+	beforeTotals := make(map[string]uint64)
+	for _, t := range targets {
+		fmt.Printf("Scanning [%s]...", t.Name)
+		var sum int64
+
+		if strings.ToLower(t.Name) == "docker" {
+			findings, total, err := dockerSystemDF()
+			if err != nil {
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf("docker df error: %v", err))
+			}
+			rep.Findings[t.Name] = append(rep.Findings[t.Name], findings...)
+			sum = total
+		} else {
+			var expanded []string
+			for _, p := range t.Paths {
+				matches, err := expandGlobs(p)
+				if err != nil {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf("glob error %s:%s: %v", t.Name, p, err))
+					continue
+				}
+				expanded = append(expanded, matches...)
+			}
+			for _, p := range expanded {
+				f, err := inspectPath(p)
+				if err != nil {
+					f.Err = err.Error()
+				}
+				rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
+				sum += f.SizeBytes
+			}
+		}
+		beforeTotals[t.Name] = uint64(sum)
+		fmt.Printf(" done (%s)\n", human(sum))
+	}
+	return beforeTotals
+}
+
+// selectTargets filters cfg.Targets by enabled status and targetsFlag (e.g. "all" or "docker,npm").
+func selectTargets(cfg *Config, targetsFlag string) []Target {
+	sel := map[string]bool{}
+	for _, t := range strings.Split(targetsFlag, ",") {
+		if s := strings.TrimSpace(strings.ToLower(t)); s != "" {
+			sel[s] = true
+		}
+	}
+	var targets []Target
+	for _, t := range cfg.Targets {
+		if !t.Enabled {
+			continue
+		}
+		if !sel["all"] && !sel[strings.ToLower(t.Name)] {
+			continue
+		}
+		targets = append(targets, t)
+	}
+	return targets
+}
+
 // ----- Tool checker -----
 
 func checkTools(cfg *Config) {
+	checkToolsWithFlags(cfg, *flagConfig, *flagTargets)
+}
+
+func checkToolsWithFlags(cfg *Config, configPath, targetsFlag string) {
 	// Filter by --targets if specified
 	sel := map[string]bool{}
-	for _, t := range strings.Split(*flagTargets, ",") {
+	for _, t := range strings.Split(targetsFlag, ",") {
 		if s := strings.TrimSpace(strings.ToLower(t)); s != "" {
 			sel[s] = true
 		}
@@ -675,7 +795,7 @@ func checkTools(cfg *Config) {
 		return
 	}
 
-	fmt.Printf("Tool Status Check (config: %s)\n\n", *flagConfig)
+	fmt.Printf("Tool Status Check (config: %s)\n\n", configPath)
 
 	var allOK = true
 	// Sort tool names for consistent output
@@ -735,19 +855,27 @@ func checkTools(cfg *Config) {
 
 	if allOK {
 		fmt.Println("All required tools are installed!")
-		os.Exit(0)
+		if !testMode {
+			os.Exit(0)
+		}
 	} else {
 		fmt.Println("Some required tools are missing. See installation commands above.")
-		os.Exit(1)
+		if !testMode {
+			os.Exit(1)
+		}
 	}
 }
 
 // ----- Main -----
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	if checkVersionFlag() {
 		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
-		return
+		return 0
 	}
 
 	flag.Parse()
@@ -758,7 +886,7 @@ func main() {
 		if err != nil {
 			fmt.Println("config error:", err)
 			fmt.Println("Tip: run with --init to create a starter config")
-			os.Exit(1)
+			return 1
 		}
 		fmt.Printf("Available targets in %s:\n\n", *flagConfig)
 		for _, t := range cfg.Targets {
@@ -772,28 +900,28 @@ func main() {
 			}
 			fmt.Println()
 		}
-		return
+		return 0
 	}
 
 	if *flagInit {
 		if err := writeStarterConfig(*flagConfig, *flagForce); err != nil {
 			fmt.Println("init error:", err)
-			os.Exit(1)
+			return 1
 		}
 		fmt.Println("Starter config written to:", *flagConfig)
-		return
+		return 0
 	}
 
 	cfg, err := loadConfig(*flagConfig)
 	if err != nil {
 		fmt.Println("config error:", err)
 		fmt.Println("Tip: run with --init to create a starter config")
-		os.Exit(1)
+		return 1
 	}
 
 	if *flagCheckTools {
 		checkTools(cfg)
-		return
+		return 0
 	}
 
 	rep := Report{OS: runtime.GOOS, Arch: runtime.GOARCH, DryRun: !*flagClean, When: time.Now(), Totals: map[string]uint64{}, Findings: map[string][]Finding{}, Commands: map[string][]CmdResult{}, Warnings: []string{}}
@@ -810,64 +938,13 @@ func main() {
 		}
 	}
 
-	// filter by --targets
-	sel := map[string]bool{}
-	for _, t := range strings.Split(*flagTargets, ",") {
-		if s := strings.TrimSpace(strings.ToLower(t)); s != "" {
-			sel[s] = true
-		}
-	}
-
-	var targets []Target
-	for _, t := range cfg.Targets {
-		if !t.Enabled {
-			continue
-		}
-		if !sel["all"] && !sel[strings.ToLower(t.Name)] {
-			continue
-		}
-		targets = append(targets, t)
-	}
+	targets := selectTargets(cfg, *flagTargets)
 	if len(targets) == 0 {
 		fmt.Println("No targets selected.")
-		os.Exit(0)
+		return 0
 	}
 
-	// FIRST SCAN - before cleanup
-	beforeTotals := make(map[string]uint64)
-	for _, t := range targets {
-		fmt.Printf("Scanning [%s]...", t.Name)
-		var sum int64
-
-		if strings.ToLower(t.Name) == "docker" {
-			findings, total, err := dockerSystemDF()
-			if err != nil {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf("docker df error: %v", err))
-			}
-			rep.Findings[t.Name] = append(rep.Findings[t.Name], findings...)
-			sum = total
-		} else {
-			var expanded []string
-			for _, p := range t.Paths {
-				matches, err := expandGlobs(p)
-				if err != nil {
-					rep.Warnings = append(rep.Warnings, fmt.Sprintf("glob error %s:%s: %v", t.Name, p, err))
-					continue
-				}
-				expanded = append(expanded, matches...)
-			}
-			for _, p := range expanded {
-				f, err := inspectPath(p)
-				if err != nil {
-					f.Err = err.Error()
-				}
-				rep.Findings[t.Name] = append(rep.Findings[t.Name], f)
-				sum += f.SizeBytes
-			}
-		}
-		beforeTotals[t.Name] = uint64(sum)
-		fmt.Printf(" done (%s)\n", human(sum))
-	}
+	beforeTotals := runFirstScan(targets, &rep)
 
 	// output initial results
 	if *flagJSON {
@@ -875,68 +952,14 @@ func main() {
 		rep.Totals = beforeTotals
 		b, _ := json.MarshalIndent(rep, "", "  ")
 		fmt.Println(string(b))
-		return
+		return 0
 	}
 
 	fmt.Printf("Config: %s\n", *flagConfig)
 	fmt.Printf("Scan: %s\n", rep.When.Format(time.RFC3339))
 	fmt.Printf("Dry-run: %v\n\n", rep.DryRun)
 
-	// Check tools and prepare commands (but don't run yet unless --clean)
-	// This populates rep.Commands so we can display them in the output
-	for _, t := range targets {
-		// Check tool requirements first - create a map of tool name -> installed status
-		toolStatus := make(map[string]bool)
-		if len(t.Tools) > 0 {
-			for _, tool := range t.Tools {
-				installed, _, err := checkTool(tool)
-				toolStatus[tool.Name] = installed
-				if !installed {
-					installCmd := getInstallCommand(tool)
-					errMsg := fmt.Sprintf("Required tool '%s' is not installed or not in PATH", tool.Name)
-					if err != nil {
-						errMsg = fmt.Sprintf("Required tool '%s' version check failed: %v", tool.Name, err)
-					}
-					installGuidance := fmt.Sprintf("To install: %s", installCmd)
-					if tool.InstallNotes != "" {
-						installGuidance += " - " + tool.InstallNotes
-					}
-					rep.Warnings = append(rep.Warnings, fmt.Sprintf("[%s] %s. %s", t.Name, errMsg, installGuidance))
-				}
-			}
-		}
-
-		if len(t.Cmds) == 0 {
-			continue
-		}
-
-		// Populate commands with their found status
-		for _, c := range t.Cmds {
-			found := false
-			errorMsg := ""
-
-			if len(c) > 0 {
-				if installed, ok := toolStatus[c[0]]; ok {
-					found = installed
-					if !installed {
-						errorMsg = fmt.Sprintf("tool '%s' not installed", c[0])
-					}
-				} else {
-					_, err := exec.LookPath(c[0])
-					found = err == nil
-					if !found {
-						errorMsg = "not found"
-					}
-				}
-			}
-
-			rep.Commands[t.Name] = append(rep.Commands[t.Name], CmdResult{
-				Cmd:   c,
-				Found: found,
-				Error: errorMsg,
-			})
-		}
-	}
+	populateCommands(targets, &rep)
 
 	// Show initial scan results (summary by default; detailed with --details)
 	type kv struct {
@@ -1179,4 +1202,5 @@ func main() {
 			fmt.Println(" -", w)
 		}
 	}
+	return 0
 }

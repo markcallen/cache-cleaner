@@ -177,23 +177,12 @@ func displayResults(findings []Finding, total int64) {
 	}
 }
 
-func main() {
-	if checkVersionFlag() {
-		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
-		return
-	}
-
-	flag.Parse()
-
-	// Determine scan path
-	scanPath := *flagScan
+// expandScanPath expands ~ and env vars, resolves to absolute path, and verifies it exists.
+// Returns the expanded path or an error.
+func expandScanPath(scanPath string) (string, error) {
 	if scanPath == "" {
-		fmt.Println("Error: --scan flag is required")
-		fmt.Println("Usage: git-cleaner --scan <directory> [--clean]")
-		os.Exit(1)
+		return "", fmt.Errorf("scan path is required")
 	}
-
-	// Expand ~ and environment variables
 	if strings.HasPrefix(scanPath, "~") {
 		home, err := os.UserHomeDir()
 		if err == nil {
@@ -207,17 +196,32 @@ func main() {
 		}
 	}
 	scanPath = os.ExpandEnv(scanPath)
-
-	// Make path absolute
-	scanPath, err := filepath.Abs(scanPath)
+	abs, err := filepath.Abs(scanPath)
 	if err != nil {
-		fmt.Printf("Error: invalid scan path: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("invalid scan path: %w", err)
+	}
+	if _, err := os.Stat(abs); os.IsNotExist(err) {
+		return "", fmt.Errorf("scan path does not exist: %s", abs)
+	}
+	return abs, nil
+}
+
+func main() {
+	if checkVersionFlag() {
+		fmt.Printf("version %s, commit %s, built at %s\n", version, commit, date)
+		return
 	}
 
-	// Verify path exists
-	if _, err := os.Stat(scanPath); os.IsNotExist(err) {
-		fmt.Printf("Error: scan path does not exist: %s\n", scanPath)
+	flag.Parse()
+
+	scanPath, err := expandScanPath(*flagScan)
+	if err != nil {
+		if err.Error() == "scan path is required" {
+			fmt.Println("Error: --scan flag is required")
+			fmt.Println("Usage: git-cleaner --scan <directory> [--clean]")
+		} else {
+			fmt.Printf("Error: %v\n", err)
+		}
 		os.Exit(1)
 	}
 

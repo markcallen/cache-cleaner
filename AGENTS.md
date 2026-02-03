@@ -169,8 +169,15 @@ err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error 
 })
 ```
 
+## Code Coverage
+
+- **Minimum**: 60% statement coverage for all apps (dev-cache, git-cleaner, mac-cache-cleaner)
+- Run coverage: `go test -cover ./...` from each app directory
+- Generate report: `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
+
 ## CI/CD & Pre-commit
 
+- **Tests before push**: Run `make test` before pushing to remote. All tests must pass before pushing.
 - **CI**: On push/PR to main - tests, lints, vets, builds all apps
 - **Release**: On version tags (v1.0.0) - GoReleaser builds releases
 - **Pre-commit**: go-fmt, go-vet, go-mod-tidy, golangci-lint, go-test
