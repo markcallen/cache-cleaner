@@ -736,21 +736,36 @@ func TestExpandGlobsBrewUnsupported(t *testing.T) {
 }
 
 func TestExpandGlobsBrewCacheNoBrew(t *testing.T) {
-	// When PATH is empty, brew --cache falls back to ~/Library/Caches/Homebrew
+	// When PATH is empty, brew --cache falls back to ~/Library/Caches/Homebrew.
+	// Create a mock home dir with that structure so the test works on any OS (Linux CI, etc.).
+	tmpDir := t.TempDir()
+	mockBrewCache := filepath.Join(tmpDir, "Library", "Caches", "Homebrew")
+	if err := os.MkdirAll(mockBrewCache, 0o755); err != nil {
+		t.Fatalf("create mock brew cache dir: %v", err)
+	}
+
 	oldPath := os.Getenv("PATH")
+	oldHome := os.Getenv("HOME")
+	oldUserProfile := os.Getenv("USERPROFILE")
+	defer func() {
+		_ = os.Setenv("PATH", oldPath)
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("USERPROFILE", oldUserProfile)
+	}()
 	t.Setenv("PATH", "")
-	defer func() { _ = os.Setenv("PATH", oldPath) }()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	paths, err := expandGlobs("$(brew --cache)")
 	if err != nil {
 		t.Fatalf("expandGlobs brew --cache with empty PATH: %v", err)
 	}
-	// Should get fallback path
+	// Should get fallback path (exists because we created it)
 	if len(paths) != 1 {
 		t.Fatalf("expected 1 path, got %d", len(paths))
 	}
-	if !strings.Contains(paths[0], "Homebrew") && !strings.Contains(paths[0], "homebrew") {
-		t.Logf("fallback path: %s", paths[0])
+	if paths[0] != mockBrewCache {
+		t.Fatalf("expected path %q, got %q", mockBrewCache, paths[0])
 	}
 }
 
