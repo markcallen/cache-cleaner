@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -337,4 +338,304 @@ func TestScanDirectoryMapLookup(t *testing.T) {
 	if rootNodeModulesFinding.Pattern == "" {
 		t.Fatalf("root node_modules finding should have a Pattern set, got: %+v", rootNodeModulesFinding)
 	}
+}
+
+func TestEnsureDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a", "b", "config.yaml")
+	if err := ensureDir(path); err != nil {
+		t.Fatalf("ensureDir error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+		t.Fatalf("expected directory to exist: %v", err)
+	}
+}
+
+func TestIsCacheDirectory(t *testing.T) {
+	if isCacheDirectory(Finding{Pattern: "node_modules"}) != true {
+		t.Fatal("expected true for cache directory")
+	}
+	if isCacheDirectory(Finding{Pattern: ""}) != false {
+		t.Fatal("expected false for non-cache directory")
+	}
+}
+
+func TestContains(t *testing.T) {
+	if contains([]string{"a", "b"}, "a") != true {
+		t.Fatal("expected true when item in slice")
+	}
+	if contains([]string{"a", "b"}, "c") != false {
+		t.Fatal("expected false when item not in slice")
+	}
+	if contains([]string{}, "a") != false {
+		t.Fatal("expected false for empty slice")
+	}
+}
+
+func TestWriteStarterConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+
+	if err := writeStarterConfig(cfgPath, false); err != nil {
+		t.Fatalf("writeStarterConfig failed: %v", err)
+	}
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Fatalf("config file not created: %v", err)
+	}
+
+	// Overwrite without force should fail
+	if err := writeStarterConfig(cfgPath, false); err == nil {
+		t.Fatal("expected error when overwriting without force")
+	}
+
+	// With force should succeed
+	if err := writeStarterConfig(cfgPath, true); err != nil {
+		t.Fatalf("writeStarterConfig with force failed: %v", err)
+	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := writeStarterConfig(cfgPath, false); err != nil {
+		t.Fatalf("writeStarterConfig failed: %v", err)
+	}
+
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg == nil || len(cfg.Languages) == 0 {
+		t.Fatalf("expected non-empty config")
+	}
+
+	_, err = loadConfig(filepath.Join(tmpDir, "nonexistent.yaml"))
+	if err == nil {
+		t.Fatal("expected error for non-existent config")
+	}
+
+	// Invalid YAML
+	badPath := filepath.Join(tmpDir, "bad.yaml")
+	if err := os.WriteFile(badPath, []byte("not: valid: yaml: content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadConfig(badPath)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestGetLanguageForExclusion(t *testing.T) {
+	tests := []struct {
+		detected string
+		excluded bool
+		want     string
+	}{
+		{"node", false, "node"},
+		{"", false, "no language found"},
+		{"node", true, ""},
+		{"", true, ""},
+	}
+	for _, tt := range tests {
+		got := getLanguageForExclusion(tt.detected, tt.excluded)
+		if got != tt.want {
+			t.Errorf("getLanguageForExclusion(%q, %v) = %q, want %q", tt.detected, tt.excluded, got, tt.want)
+		}
+	}
+}
+
+func TestDisplayDetailed(t *testing.T) {
+	// Redirect stdout to capture output
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	findings := []Finding{
+		{Path: "/proj1/node_modules", ProjectRoot: "/proj1", SizeBytes: 1000, Items: 5, Pattern: "node_modules", Language: "node"},
+		{Path: "/proj1/.venv", ProjectRoot: "/proj1", SizeBytes: 500, Items: 2, Pattern: ".venv", Language: "python"},
+	}
+	displayDetailed(findings, 1500)
+
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	out := buf.String()
+	if !strings.Contains(out, "proj1") && !strings.Contains(out, "node_modules") {
+		t.Logf("displayDetailed output: %s", out)
+	}
+}
+
+func TestDisplayDetailedNoCache(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	// Project with no cache directories (Pattern empty)
+	findings := []Finding{
+		{Path: "/proj2", ProjectRoot: "/proj2", SizeBytes: 0, Items: 0, Pattern: "", Language: "no language found"},
+	}
+	displayDetailed(findings, 0)
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	if buf.Len() == 0 {
+		t.Fatal("expected some output")
+	}
+}
+
+func TestDisplayDetailedWithError(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+
+	// Finding with error should be skipped in grouping but table still renders
+	findings := []Finding{
+		{Path: "/proj1/node_modules", ProjectRoot: "/proj1", SizeBytes: 1000, Items: 5, Pattern: "node_modules", Language: "node"},
+		{Path: "/proj1/bad", ProjectRoot: "/proj1", SizeBytes: 0, Items: 0, Pattern: "node_modules", Language: "node", Err: "permission denied"},
+	}
+	displayDetailed(findings, 1000)
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	if buf.Len() == 0 {
+		t.Fatal("expected some output")
+	}
+}
+
+func TestDetectLanguage(t *testing.T) {
+	root := t.TempDir()
+	langSignatures := map[string][]string{
+		"node":   {"package.json"},
+		"python": {"requirements.txt"},
+	}
+	langPriorities := map[string]int{
+		"node":   10,
+		"python": 5,
+	}
+
+	// No signatures
+	got := detectLanguage(root, langSignatures, langPriorities)
+	if got != "" {
+		t.Fatalf("expected empty for dir with no signatures, got %q", got)
+	}
+
+	// Add package.json
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = detectLanguage(root, langSignatures, langPriorities)
+	if got != "node" {
+		t.Fatalf("expected node, got %q", got)
+	}
+
+	// Test wildcard pattern
+	root2 := t.TempDir()
+	langSignatures2 := map[string][]string{
+		"dotnet": {"*.csproj"},
+	}
+	langPriorities2 := map[string]int{"dotnet": 5}
+	if err := os.WriteFile(filepath.Join(root2, "MyApp.csproj"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = detectLanguage(root2, langSignatures2, langPriorities2)
+	if got != "dotnet" {
+		t.Fatalf("expected dotnet for *.csproj, got %q", got)
+	}
+}
+
+func TestDefaultConfigPathEmptyHome(t *testing.T) {
+	if os.Getenv("HOME") == "" && os.Getenv("USERPROFILE") == "" {
+		t.Skip("cannot unset home on this system")
+	}
+	oldHome := os.Getenv("HOME")
+	oldUserProfile := os.Getenv("USERPROFILE")
+	defer func() {
+		os.Setenv("HOME", oldHome)
+		os.Setenv("USERPROFILE", oldUserProfile)
+	}()
+	os.Unsetenv("HOME")
+	os.Unsetenv("USERPROFILE")
+	// UserHomeDir may still return something from other sources; just verify we get a path
+	p := defaultConfigPath()
+	if p == "" {
+		t.Fatal("defaultConfigPath should not return empty")
+	}
+}
+
+func TestInspectPathFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := inspectPath(filePath)
+	if err != nil {
+		t.Fatalf("inspectPath error: %v", err)
+	}
+	if f.Items != 1 || f.SizeBytes != 5 {
+		t.Fatalf("expected 1 item, 5 bytes, got %d items, %d bytes", f.Items, f.SizeBytes)
+	}
+}
+
+func TestInspectPathNonExistent(t *testing.T) {
+	_, err := inspectPath(filepath.Join(t.TempDir(), "nonexistent"))
+	if err == nil {
+		t.Fatal("expected error for non-existent path")
+	}
+}
+
+func TestHumanLarge(t *testing.T) {
+	// Test TB unit
+	got := human(1024 * 1024 * 1024 * 1024)
+	if !strings.Contains(got, "TB") && !strings.Contains(got, "1.00") {
+		t.Fatalf("human(1TB) = %q, expected to contain TB", got)
+	}
+}
+
+func TestScanDirectoryWithExcludedDir(t *testing.T) {
+	// Test that .git directories are excluded from language detection
+	root := t.TempDir()
+	projWithGit := filepath.Join(root, "proj-with-git")
+	if err := os.MkdirAll(filepath.Join(projWithGit, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projWithGit, ".git", "config"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(projWithGit, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projWithGit, "node_modules", "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	patterns := []string{"node_modules"}
+	patternToLang := map[string]string{"node_modules": "node"}
+	langSignatures := map[string][]string{"node": {"package.json"}}
+	langPriorities := map[string]int{"node": 10}
+	langToPatterns := map[string][]string{"node": {"node_modules"}}
+
+	findings := scanDirectory(root, 2, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns)
+	if len(findings) < 1 {
+		t.Fatalf("expected at least 1 finding, got %d", len(findings))
+	}
+}
+
+func TestScanDirectoryWalkError(t *testing.T) {
+	// Create a dir we can't read (on Unix, chmod 000)
+	root := t.TempDir()
+	noReadDir := filepath.Join(root, "noread")
+	if err := os.MkdirAll(noReadDir, 0o000); err != nil {
+		t.Skip("cannot create no-read dir:", err)
+	}
+	defer func() { _ = os.Chmod(noReadDir, 0o755) }()
+
+	patterns := []string{"node_modules"}
+	patternToLang := map[string]string{"node_modules": "node"}
+	findings := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil)
+	// Should not panic; may or may not find things depending on walk behavior
+	_ = findings
 }

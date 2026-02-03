@@ -1,5 +1,6 @@
 .DS_Store
 build/
+coverage.out
 *.log
 dev-cache/dev-cache
 git-cleaner/git-cleaner
