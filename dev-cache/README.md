@@ -15,7 +15,7 @@ A cross-platform Go CLI tool that scans source code directories to find and opti
 - **Configurable scanning**: Customize scan paths, depth, and language patterns
 - **Dry-run by default**: Reports disk usage without deleting files
 - **Safe deletion**: Requires explicit `--clean` flag with confirmation prompt
-- **Table output**: Summary view grouped by language, or detailed per-project breakdown
+- **Table output**: Aggregated per-project overview with cache types, languages, and sizes
 - **JSON output**: Machine-readable output for automation
 
 ## Installation
@@ -59,17 +59,12 @@ This creates a config file at `~/.config/dev-cache/config.yaml`.
 ./build/dev-cache
 ```
 
-3. **See detailed breakdown**:
-```bash
-./build/dev-cache --details
-```
-
-4. **Delete found cache directories**:
+3. **Delete found cache directories**:
 ```bash
 ./build/dev-cache --clean
 ```
 
-5. **Scan a different directory**:
+4. **Scan a different directory**:
 ```bash
 ./build/dev-cache --scan ~/projects
 ```
@@ -87,7 +82,6 @@ This creates a config file at `~/.config/dev-cache/config.yaml`.
 | `--clean` | Delete found cache directories |
 | `--yes` | Skip confirmation prompt for cleanup |
 | `--json` | Output results as JSON |
-| `--details` | Show detailed per-project breakdown |
 
 ## Configuration
 
@@ -187,33 +181,26 @@ All paths use `filepath.Join()` for cross-platform compatibility. Home directory
 
 ## Output Modes
 
-### Summary Mode (default)
+### Aggregated Table Output
 
-Groups findings by language:
-
-```
-+----------+-------------+------------+
-| Language | Directories | Total Size |
-+----------+-------------+------------+
-| node     | 5           | 1.23 GB    |
-| python   | 3           | 456.78 MB  |
-| rust     | 2           | 123.45 MB  |
-+----------+-------------+------------+
-| TOTAL    | 10          | 1.81 GB    |
-+----------+-------------+------------+
-```
-
-### Detailed Mode (`--details`)
-
-Shows each cache directory found:
+dev-cache always prints a single table grouped by project root. Each row aggregates all cache directories discovered for that project, including cache types, detected language, total size, and item counts.
 
 ```
-+----------------------+---------------+----------+----------+--------+
-| Project Path         | Cache Type    | Language | Size     | Items  |
-+----------------------+---------------+----------+----------+--------+
-| ~/src/proj1/node...  | node_modules  | node     | 512.34 MB| 45678  |
-| ~/src/proj2/.venv    | .venv         | python   | 123.45 MB| 1234   |
-+----------------------+---------------+----------+----------+--------+
++----------------------+---------------------+----------+-----------+--------+
+| Project Path         | Cache Types         | Language | Total Size| Items  |
++----------------------+---------------------+----------+-----------+--------+
+| ~/src/proj1          | node_modules, .venv | node     | 635.79 MB | 46912 |
+| ~/src/proj2          | .venv               | python   | 123.45 MB |  1234 |
++----------------------+---------------------+----------+-----------+--------+
+| TOTAL                |                     |          | 759.24 MB | 48146 |
+```
+
+### JSON Output
+
+Use `--json` to get structured output suitable for automation:
+
+```bash
+./build/dev-cache --json > scan-results.json
 ```
 
 ## Safety Considerations
