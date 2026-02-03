@@ -11,7 +11,7 @@ A collection of Go CLI tools for reclaiming disk space on development machines.
 ## Apps
 
 ### mac-cache-cleaner
-macOS cache cleaner that runs **safe, official cleanup commands** for developer tools (Docker, npm, Homebrew, etc.)—never `rm -rf`.
+macOS cache cleaner that runs **safe, official cleanup commands** for developer tools (Docker, npm, Homebrew, etc.), never `rm -rf`.
 
 ### dev-cache
 Cross-platform tool that scans source directories for project cache directories (like `node_modules`, `.venv`, `target`, etc.) across multiple languages.
@@ -153,6 +153,20 @@ make vet
 ```
 
 ### Release
+
+**How to trigger a release**
+
+Releases are triggered by pushing a version tag matching `vX.Y.Z` (e.g. `v1.0.0`, `v2.3.1`):
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+**Prerequisites**
+
+- `GITHUB_TOKEN` is provided automatically by GitHub Actions
+- `HOMEBREW_TAP_GITHUB_TOKEN` must be configured in the repository's GitHub secrets for Homebrew tap updates
 
 **What should happen:**
 
