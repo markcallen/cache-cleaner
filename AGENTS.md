@@ -3,16 +3,16 @@
 ## Project Overview
 
 **cache-cleaner** is a Go monorepo with three CLI tools for reclaiming disk space:
-- **dev-cache** - Scans for project cache directories (node_modules, .venv, target, etc.)
-- **git-cleaner** - Finds .git directories, reports sizes, optimizes with `git gc`
-- **mac-cache-cleaner** - Runs safe CLI cleanup commands for developer tools
+- **dev-cache** - Cross-platform scanner for project cache directories (node_modules, .venv, target, etc.) with language detection; deletes caches with `--clean`
+- **git-cleaner** - Cross-platform; finds .git directories, reports sizes, optimizes with `git gc`; requires `--scan` (no config file)
+- **mac-cache-cleaner** - macOS-only; runs safe CLI cleanup commands for developer tools (Docker, npm, Homebrew, etc.)
 
 ## Build/Lint/Test Commands
 
 ### Root Makefile
 | Command | Description |
 |---------|-------------|
-| `make all` | Build all applications |
+| `make all` | Build all applications (runs fmt, lint, vet, build in each app) |
 | `make test` | Run tests in all apps |
 | `make fmt` | Format code in all apps |
 | `make lint` | Lint all apps (golangci-lint) |
@@ -27,6 +27,7 @@
 | `make build` | Build binary to `./build/` |
 | `make fmt` | `gofmt -s -w . && go fmt ./...` |
 | `make lint` | Lint with golangci-lint |
+| `make install` | Install golangci-lint to $(GOBIN) |
 
 ### Running a Single Test
 ```bash
@@ -72,14 +73,10 @@ var (
 ```
 
 ### Struct Tags
-Use both `yaml` and `json` tags; include `omitempty` for optional fields:
-```go
-type Finding struct {
-    Path      string `json:"path"`
-    SizeBytes int64  `json:"size_bytes"`
-    Err       string `json:"error,omitempty"`
-}
-```
+Use both `yaml` and `json` tags; include `omitempty` for optional fields. Finding structs vary by app:
+- dev-cache: Path, ProjectRoot, SizeBytes, Items, Pattern, Language, Err, ModMax
+- git-cleaner: Path, RepoPath, SizeBytes, Items
+- mac-cache-cleaner: Path, SizeBytes, Items, Err, ModMax
 
 ### Error Handling
 ```go
@@ -142,9 +139,9 @@ cache-cleaner/
 
 1. **Dry-run by default** - Report without changes unless `--clean` is specified
 2. **Safety first** - Use official tool CLI commands, never direct `rm -rf`
-3. **Cross-platform paths** - Use `filepath.Join()`, `os.UserHomeDir()`
-4. **Config-driven** - YAML config with `--init` to create starter configs
-5. **Consistent CLI** - `--version`, `--help`, `--config`, `--clean`, `--json`
+3. **Cross-platform paths** - Use `filepath.Join()`, `os.UserHomeDir()`. dev-cache and git-cleaner are cross-platform; mac-cache-cleaner is macOS-only
+4. **Config-driven** - dev-cache and mac-cache-cleaner use YAML config with `--init`; git-cleaner is flag-only (`--scan` required)
+5. **Consistent CLI** - Common flags: `--version`, `--help`, `--clean`. dev-cache and mac-cache-cleaner add `--config`, `--init`, `--json`; git-cleaner uses `--scan` only (no config)
 6. **Table output** - Use tablewriter for humans, JSON for automation
 7. **Error collection** - Collect errors but continue; report at end
 
@@ -169,6 +166,9 @@ err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error 
 })
 ```
 
+### Confirmation prompt (dev-cache)
+dev-cache prompts before cleanup unless `--yes` is set.
+
 ## Code Coverage
 
 - **Minimum**: 60% statement coverage for all apps (dev-cache, git-cleaner, mac-cache-cleaner)
@@ -178,6 +178,6 @@ err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error 
 ## CI/CD & Pre-commit
 
 - **Tests before push**: Run `make test` before pushing to remote. All tests must pass before pushing.
-- **CI**: On push/PR to main - tests, lints, vets, builds all apps
+- **CI**: On push/PR to main - lint, vet, fmt check, tests with coverage, builds for linux/darwin amd64+arm64; uploads to Codecov
 - **Release**: On version tags (v1.0.0) - GoReleaser builds releases
-- **Pre-commit**: go-fmt, go-vet, go-mod-tidy, golangci-lint, go-test
+- **Pre-commit**: Root delegates to per-app hooks (sub-pre-commit). Per-app: go-fmt, go-vet-mod, go-mod-tidy, golangci-lint-mod, go-test-mod (TekWizely/pre-commit-golang)
