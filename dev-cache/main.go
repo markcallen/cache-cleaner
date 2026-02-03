@@ -758,7 +758,13 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 					f.Err = err.Error()
 				}
 				f.Pattern = pattern
-				f.Language = patternToLang[pattern]
+				// Use detected language when available; patternToLang can be wrong when
+				// multiple languages share a pattern (e.g. node_modules in node, nextjs, vue)
+				if detectLang && detectedLang != "" {
+					f.Language = detectedLang
+				} else {
+					f.Language = patternToLang[pattern]
+				}
 				// Set project root to where language was detected, or parent if no language detection
 				if detectLang && projectRoot != "" {
 					f.ProjectRoot = projectRoot
