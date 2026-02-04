@@ -384,7 +384,7 @@ func main() {
 			return
 		}
 
-		if shouldPromptForDeletion(*flagYes) {
+		if !*flagYes {
 			fmt.Printf("\nWARNING: This will delete %d cache directories:\n", len(cacheFindings))
 			// Sort findings by size (largest first) for display
 			sortedFindings := make([]Finding, len(cacheFindings))
@@ -460,11 +460,6 @@ func filterCacheFindings(findings []Finding) ([]Finding, int64) {
 		}
 	}
 	return cacheFindings, total
-}
-
-// shouldPromptForDeletion determines whether user confirmation is required prior to deletion.
-func shouldPromptForDeletion(flagYes bool) bool {
-	return !flagYes
 }
 
 // totalCacheBytes calculates the total bytes consumed by cache directories within the findings slice.

@@ -664,15 +664,6 @@ func TestFilterCacheFindings(t *testing.T) {
 	}
 }
 
-func TestShouldPromptForDeletion(t *testing.T) {
-	if shouldPromptForDeletion(true) {
-		t.Fatal("expected no prompt when --yes is set")
-	}
-	if !shouldPromptForDeletion(false) {
-		t.Fatal("expected prompt when --yes is not set")
-	}
-}
-
 func TestTotalCacheBytes(t *testing.T) {
 	findings := []Finding{
 		{Pattern: "node_modules", SizeBytes: 50},
