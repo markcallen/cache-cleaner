@@ -177,6 +177,7 @@ dev-cache prompts before cleanup unless `--yes` is set.
 
 ## CI/CD & Pre-commit
 
+- **Pull requests**: When creating a PR, always assign Copilot as a reviewer (e.g. via GitHub MCP `request_copilot_review`).
 - **Tests before push**: Run `make test` before pushing to remote. All tests must pass before pushing.
 - **CI**: On push/PR to main - lint, vet, fmt check, tests with coverage, builds for linux/darwin amd64+arm64; uploads to Codecov
 - **Release**: On version tags (v1.0.0) - GoReleaser builds releases

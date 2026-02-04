@@ -544,6 +544,26 @@ func TestDetectLanguage(t *testing.T) {
 	if got != "dotnet" {
 		t.Fatalf("expected dotnet for *.csproj, got %q", got)
 	}
+
+	// Priorities: python should win when both signatures exist because it has lower priority number.
+	prioritizedRoot := t.TempDir()
+	langSignatures3 := map[string][]string{
+		"node":   {"package.json"},
+		"python": {"requirements.txt"},
+	}
+	langPriorities3 := map[string]int{
+		"node":   10,
+		"python": 1,
+	}
+	if err := os.WriteFile(filepath.Join(prioritizedRoot, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prioritizedRoot, "requirements.txt"), []byte("flask"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := detectLanguage(prioritizedRoot, langSignatures3, langPriorities3); got != "python" {
+		t.Fatalf("expected python to be selected due to higher priority, got %q", got)
+	}
 }
 
 func TestDefaultConfigPathEmptyHome(t *testing.T) {
@@ -621,6 +641,49 @@ func TestScanDirectoryWithExcludedDir(t *testing.T) {
 	findings := scanDirectory(root, 2, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns)
 	if len(findings) < 1 {
 		t.Fatalf("expected at least 1 finding, got %d", len(findings))
+	}
+}
+
+func TestFilterCacheFindings(t *testing.T) {
+	findings := []Finding{
+		{Path: "/proj/node_modules", Pattern: "node_modules", SizeBytes: 100},
+		{Path: "/proj/.venv", Pattern: ".venv", SizeBytes: 200},
+		{Path: "/proj/README.md", Pattern: "", SizeBytes: 10},
+	}
+	cacheOnly, total := filterCacheFindings(findings)
+	if len(cacheOnly) != 2 {
+		t.Fatalf("expected 2 cache findings, got %d", len(cacheOnly))
+	}
+	if total != 300 {
+		t.Fatalf("expected total 300, got %d", total)
+	}
+	for _, f := range cacheOnly {
+		if f.Pattern == "" {
+			t.Fatal("expected only cache findings")
+		}
+	}
+}
+
+func TestTotalCacheBytes(t *testing.T) {
+	findings := []Finding{
+		{Pattern: "node_modules", SizeBytes: 50},
+		{Pattern: "", SizeBytes: 25},
+		{Pattern: ".venv", SizeBytes: 75},
+	}
+	if got := totalCacheBytes(findings); got != 125 {
+		t.Fatalf("expected 125 cache bytes, got %d", got)
+	}
+}
+
+func TestBytesFreed(t *testing.T) {
+	if freed := bytesFreed(500, 200); freed != 300 {
+		t.Fatalf("expected 300 freed bytes, got %d", freed)
+	}
+	if freed := bytesFreed(200, 500); freed != 0 {
+		t.Fatalf("expected 0 freed bytes when after >= before, got %d", freed)
+	}
+	if freed := bytesFreed(100, 100); freed != 0 {
+		t.Fatalf("expected 0 freed bytes when totals equal, got %d", freed)
 	}
 }
 

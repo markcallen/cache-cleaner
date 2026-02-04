@@ -347,11 +347,17 @@ func TestExpandScanPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}
+	if !strings.Contains(err.Error(), "scan path is required") {
+		t.Fatalf("expected 'scan path is required' error, got %v", err)
+	}
 
 	// Non-existent path
 	_, err = expandScanPath(filepath.Join(dir, "nonexistent"))
 	if err == nil {
 		t.Fatal("expected error for non-existent path")
+	}
+	if !strings.Contains(err.Error(), "scan path does not exist") {
+		t.Fatalf("expected 'scan path does not exist' error, got %v", err)
 	}
 
 	// Valid absolute path

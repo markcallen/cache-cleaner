@@ -377,15 +377,7 @@ func main() {
 
 	// Cleanup if requested
 	if *flagClean {
-		// Filter findings to only include those with a cache pattern (non-empty Pattern)
-		var cacheFindings []Finding
-		var cacheTotal int64
-		for _, f := range findings {
-			if isCacheDirectory(f) {
-				cacheFindings = append(cacheFindings, f)
-				cacheTotal += f.SizeBytes
-			}
-		}
+		cacheFindings, cacheTotal := filterCacheFindings(findings)
 
 		if len(cacheFindings) == 0 {
 			fmt.Println("\nNo cache directories found to delete.")
@@ -433,14 +425,8 @@ func main() {
 		// Re-scan to verify
 		fmt.Println("Re-scanning after cleanup...")
 		afterFindings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns)
-		var afterTotal int64
-		for _, f := range afterFindings {
-			if isCacheDirectory(f) {
-				afterTotal += f.SizeBytes
-			}
-		}
-
-		freed := beforeTotal - afterTotal
+		afterTotal := totalCacheBytes(afterFindings)
+		freed := bytesFreed(beforeTotal, afterTotal)
 		fmt.Printf("\nDeleted %d directories", deletedCount)
 		if freed > 0 {
 			fmt.Printf(", freed %s", human(freed))
@@ -461,6 +447,38 @@ func main() {
 			fmt.Println(" -", w)
 		}
 	}
+}
+
+// filterCacheFindings returns only findings representing cache directories and the total bytes they consume.
+func filterCacheFindings(findings []Finding) ([]Finding, int64) {
+	var cacheFindings []Finding
+	var total int64
+	for _, f := range findings {
+		if isCacheDirectory(f) {
+			cacheFindings = append(cacheFindings, f)
+			total += f.SizeBytes
+		}
+	}
+	return cacheFindings, total
+}
+
+// totalCacheBytes calculates the total bytes consumed by cache directories within the findings slice.
+func totalCacheBytes(findings []Finding) int64 {
+	var total int64
+	for _, f := range findings {
+		if isCacheDirectory(f) {
+			total += f.SizeBytes
+		}
+	}
+	return total
+}
+
+// bytesFreed computes the positive difference between the totals recorded before and after cleanup.
+func bytesFreed(before, after int64) int64 {
+	if before <= after {
+		return 0
+	}
+	return before - after
 }
 
 // detectLanguage checks a directory for language signature files and returns the detected language name

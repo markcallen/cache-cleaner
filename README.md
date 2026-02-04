@@ -51,6 +51,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Add this to your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
+#### install.sh behavior
+
+- The script installs from the latest GitHub release archives.
+- `-b <dir>` is mandatory and determines where binaries are written.
+- Use `-a <app>` to install a single binary (`dev-cache`, `git-cleaner`, or `mac-cache-cleaner`); omit `-a` to install all three.
+- The script exits early with an error (without partial installs) if required flags or tools are missing.
+
 ## Quick Start
 
 ### mac-cache-cleaner
@@ -66,7 +73,7 @@ mac-cache-cleaner --targets brew,npm --clean
 ```bash
 dev-cache --init
 dev-cache                            # scan for cache directories (dry-run)
-dev-cache --details                  # detailed breakdown
+dev-cache --json                     # machine-readable output
 dev-cache --scan ~/projects --clean  # delete found caches
 ```
 
@@ -225,6 +232,22 @@ brew audit --strict --online cache-cleaner
 brew uninstall cache-cleaner
 brew untap markcallen/cache-cleaner
 ```
+
+### Release Smoke Test
+
+For each tagged release:
+
+1. Download the desired binary from the GitHub release assets.
+2. Make it executable and confirm the version string:
+   ```bash
+   chmod +x dev-cache-darwin-arm64
+   ./dev-cache-darwin-arm64 --version
+   ```
+3. Run a dry-run command to ensure the binary starts up correctly (no cleanup):
+   ```bash
+   ./dev-cache-darwin-arm64 --help
+   ```
+4. Repeat for `git-cleaner` and `mac-cache-cleaner` (the latter requires macOS).
 
 ## Questions?
 
