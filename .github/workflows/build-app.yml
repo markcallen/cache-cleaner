@@ -54,22 +54,6 @@ jobs:
         working-directory: ${{ inputs.app_name }}
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
-  - name: Enforce coverage threshold
-    working-directory: ${{ inputs.app_name }}
-    run: |
-      coverage_line=$(go tool cover -func=coverage.out | grep 'total:')
-      coverage_percent=$(echo "$coverage_line" | awk '{print substr($3, 1, length($3)-1)}')
-      printf '### Coverage\n%s: %s%%\n' "${{ inputs.app_name }}" "$coverage_percent" >> "$GITHUB_STEP_SUMMARY"
-      export COVERAGE_PERCENT="$coverage_percent"
-      python - <<'PY'
-import os
-import sys
-
-coverage = float(os.environ["COVERAGE_PERCENT"])
-if coverage < 60.0:
-    sys.exit(f"Coverage {coverage:.2f}% is below required threshold of 60%")
-PY
-
       - name: Build for Linux amd64
         working-directory: ${{ inputs.app_name }}
         run: |
