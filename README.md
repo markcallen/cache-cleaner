@@ -35,7 +35,9 @@ This installs all 3 apps: `dev-cache`, `git-cleaner`, and `mac-cache-cleaner`.
 If you don't have Homebrew, you can use the install script:
 
 ```bash
-# Install all 3 apps to ~/.local/bin
+# Install all available apps for your OS to ~/.local/bin
+# - macOS: dev-cache, git-cleaner, mac-cache-cleaner
+# - Linux: dev-cache, git-cleaner
 curl -sSfL https://raw.githubusercontent.com/markcallen/cache-cleaner/HEAD/install.sh | sh -s -- -b $HOME/.local/bin
 
 # Install specific app only
@@ -55,7 +57,9 @@ Add this to your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
 - The script installs from the latest GitHub release archives.
 - `-b <dir>` is mandatory and determines where binaries are written.
-- Use `-a <app>` to install a single binary (`dev-cache`, `git-cleaner`, or `mac-cache-cleaner`); omit `-a` to install all three.
+- Supported OS values are `darwin` and `linux`.
+- Use `-a <app>` to install a single binary (`dev-cache`, `git-cleaner`, or `mac-cache-cleaner`).
+- On Linux, default install includes `dev-cache` and `git-cleaner`; `mac-cache-cleaner` is macOS-only.
 - The script exits early with an error (without partial installs) if required flags or tools are missing.
 
 ## Quick Start
@@ -179,7 +183,8 @@ git push origin v1.0.0
 
 1. GitHub Actions will trigger the release workflow
 2. GoReleaser will:
-   - Build all 3 binaries for darwin/amd64 and darwin/arm64
+   - Build `dev-cache` and `git-cleaner` for darwin+linux (amd64 and arm64)
+   - Build `mac-cache-cleaner` for darwin (amd64 and arm64)
    - Create a GitHub release with binaries attached
    - Generate a Homebrew cask
    - Push the formula to `homebrew-cache-cleaner` repository

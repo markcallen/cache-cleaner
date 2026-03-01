@@ -6,7 +6,8 @@ REPO_OWNER="markcallen"
 REPO_NAME="cache-cleaner"
 
 # Available apps
-APPS="dev-cache git-cleaner mac-cache-cleaner"
+ALL_APPS="dev-cache git-cleaner mac-cache-cleaner"
+APPS="$ALL_APPS"
 
 usage() {
   cat <<EOF
@@ -22,13 +23,13 @@ Usage:
 Options:
   -b <bin_dir>   Install destination directory (REQUIRED)
   -a <app>       Install specific app only: dev-cache, git-cleaner, or mac-cache-cleaner
-                 (default: install all 3 apps)
+                 (default: all available apps for this OS)
 
 Arguments:
   <version>      Version tag to install (e.g., v1.2.3). Default: latest release
 
 Examples:
-  # Install all 3 apps (latest) to ~/.local/bin
+  # Install all available apps (latest) to ~/.local/bin
   curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
 
   # Install only mac-cache-cleaner
@@ -59,18 +60,31 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Determine OS/ARCH
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS" in
+  darwin)
+    APPS="$ALL_APPS"
+    ;;
+  linux)
+    APPS="dev-cache git-cleaner"
+    ;;
+  *)
+    error "unsupported OS: $OS (supported: darwin, linux)"
+    ;;
+esac
+
 # Validate app filter if provided
 if [ -n "$APP_FILTER" ]; then
   case "$APP_FILTER" in
     dev-cache|git-cleaner|mac-cache-cleaner) : ;;
     *) error "invalid app: $APP_FILTER (must be one of: dev-cache, git-cleaner, mac-cache-cleaner)" ;;
   esac
+  if [ "$OS" = "linux" ] && [ "$APP_FILTER" = "mac-cache-cleaner" ]; then
+    error "mac-cache-cleaner is only available on macOS"
+  fi
   APPS="$APP_FILTER"
 fi
-
-# Determine OS/ARCH
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-[ "$OS" = "darwin" ] || error "only macOS (darwin) is supported"
 
 UNAME_M="$(uname -m)"
 case "$UNAME_M" in
@@ -143,7 +157,7 @@ trap cleanup EXIT INT HUP TERM
 
 # Install each app
 for APP_NAME in $APPS; do
-  ASSET_NAME="${APP_NAME}-darwin-${ARCH}"
+  ASSET_NAME="${APP_NAME}-${OS}-${ARCH}"
   DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VERSION}/${ASSET_NAME}"
 
   TMPFILE="$(mktemp -t ${APP_NAME}.XXXXXX)"
