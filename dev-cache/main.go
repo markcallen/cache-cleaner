@@ -35,6 +35,10 @@ var (
 	flagScan   = flag.String("scan", "", "Directory to scan (overrides config default)")
 	flagDepth  = flag.Int("depth", 0, "Max scan depth (0 = use config default, overrides config)")
 	flagLangs  = flag.String("languages", "", "Comma-separated list of languages to scan")
+	flagExclude = flag.String("exclude", "", "Comma-separated path patterns to exclude from scan")
+	flagInclude = flag.String("include-only", "", "Comma-separated path patterns to include only")
+	flagMinAge  = flag.String("min-age", "", "Only include caches older than this (e.g. 30d, 48h)")
+	flagMaxAge  = flag.String("max-age", "", "Only include caches newer than this (e.g. 7d, 24h)")
 )
 
 // ----- Config types -----
@@ -49,6 +53,10 @@ type Options struct {
 	DefaultScanPath string `yaml:"defaultScanPath"`
 	MaxDepth        int    `yaml:"maxDepth"`
 	DetectLanguage  bool   `yaml:"detectLanguage"` // If true, detect language per directory and search only relevant patterns
+	ExcludePaths    []string `yaml:"excludePaths"`
+	IncludeOnly     []string `yaml:"includeOnly"`
+	MinAge          string   `yaml:"minAge"`
+	MaxAge          string   `yaml:"maxAge"`
 }
 
 type Language struct {
@@ -85,6 +93,14 @@ type Report struct {
 	Warnings []string  `json:"warnings"`
 }
 
+type ScanFilters struct {
+	ExcludePaths []string
+	IncludeOnly  []string
+	MinAge       time.Duration
+	MaxAge       time.Duration
+	Now          time.Time
+}
+
 // ----- Utilities -----
 
 func defaultConfigPath() string {
@@ -99,6 +115,104 @@ func ensureDir(p string) error { return os.MkdirAll(filepath.Dir(p), 0o755) }
 
 func home() string           { h, _ := os.UserHomeDir(); return h }
 func expand(p string) string { return os.ExpandEnv(strings.ReplaceAll(p, "~", home())) }
+
+func splitCSV(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func expandAndCleanPatterns(patterns []string) []string {
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		out = append(out, filepath.Clean(expand(strings.TrimSpace(p))))
+	}
+	return out
+}
+
+func matchesPathPattern(path, pattern string) bool {
+	path = filepath.Clean(path)
+	pattern = filepath.Clean(pattern)
+
+	if strings.ContainsAny(pattern, "*?[") {
+		ok, err := filepath.Match(pattern, path)
+		return err == nil && ok
+	}
+
+	if path == pattern {
+		return true
+	}
+	return strings.HasPrefix(path, pattern+string(filepath.Separator))
+}
+
+func matchesAnyPattern(path string, patterns []string) bool {
+	for _, p := range patterns {
+		if matchesPathPattern(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseAgeDuration(s string) (time.Duration, error) {
+	if strings.TrimSpace(s) == "" {
+		return 0, nil
+	}
+	s = strings.TrimSpace(strings.ToLower(s))
+	unit := s[len(s)-1]
+	num := strings.TrimSpace(s[:len(s)-1])
+	if num == "" {
+		return 0, fmt.Errorf("invalid duration: %q", s)
+	}
+	var mult time.Duration
+	switch unit {
+	case 'm':
+		mult = time.Minute
+	case 'h':
+		mult = time.Hour
+	case 'd':
+		mult = 24 * time.Hour
+	case 'w':
+		mult = 7 * 24 * time.Hour
+	default:
+		return 0, fmt.Errorf("unsupported duration unit in %q (use m/h/d/w)", s)
+	}
+	var n int64
+	if _, err := fmt.Sscanf(num, "%d", &n); err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid duration value: %q", s)
+	}
+	return time.Duration(n) * mult, nil
+}
+
+func passesAgeFilter(f Finding, filters ScanFilters) bool {
+	if !isCacheDirectory(f) || f.ModMax.IsZero() {
+		return true
+	}
+	now := filters.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(f.ModMax)
+	if filters.MinAge > 0 && age < filters.MinAge {
+		return false
+	}
+	if filters.MaxAge > 0 && age > filters.MaxAge {
+		return false
+	}
+	return true
+}
 
 func checkVersionFlag() bool {
 	for _, arg := range os.Args[1:] {
@@ -201,6 +315,10 @@ func writeStarterConfig(path string, force bool) error {
 			DefaultScanPath: "~/src",
 			MaxDepth:        1,
 			DetectLanguage:  true,
+			ExcludePaths:    []string{},
+			IncludeOnly:     []string{},
+			MinAge:          "",
+			MaxAge:          "",
 		},
 		Languages: []Language{
 			{Name: "node", Enabled: true, Priority: 10, Patterns: []string{"node_modules", ".npm", ".yarn", ".pnpm-store"}, Signatures: []string{"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}},
@@ -278,6 +396,41 @@ func main() {
 		maxDepth = *flagDepth
 	}
 
+	minAgeStr := cfg.Options.MinAge
+	if *flagMinAge != "" {
+		minAgeStr = *flagMinAge
+	}
+	maxAgeStr := cfg.Options.MaxAge
+	if *flagMaxAge != "" {
+		maxAgeStr = *flagMaxAge
+	}
+	minAge, err := parseAgeDuration(minAgeStr)
+	if err != nil {
+		fmt.Println("invalid --min-age:", err)
+		os.Exit(1)
+	}
+	maxAge, err := parseAgeDuration(maxAgeStr)
+	if err != nil {
+		fmt.Println("invalid --max-age:", err)
+		os.Exit(1)
+	}
+
+	excludePatterns := cfg.Options.ExcludePaths
+	if *flagExclude != "" {
+		excludePatterns = splitCSV(*flagExclude)
+	}
+	includePatterns := cfg.Options.IncludeOnly
+	if *flagInclude != "" {
+		includePatterns = splitCSV(*flagInclude)
+	}
+	filters := ScanFilters{
+		ExcludePaths: expandAndCleanPatterns(excludePatterns),
+		IncludeOnly:  expandAndCleanPatterns(includePatterns),
+		MinAge:       minAge,
+		MaxAge:       maxAge,
+		Now:          time.Now(),
+	}
+
 	// Filter languages
 	selectedLangs := map[string]bool{}
 	if *flagLangs != "" {
@@ -343,7 +496,7 @@ func main() {
 	if cfg.Options.DetectLanguage {
 		fmt.Printf("Language detection enabled - scanning with language-specific patterns\n")
 	}
-	findings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns)
+	findings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns, filters)
 	rep.Findings = findings
 
 	var total int64
@@ -424,7 +577,7 @@ func main() {
 
 		// Re-scan to verify
 		fmt.Println("Re-scanning after cleanup...")
-		afterFindings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns)
+			afterFindings := scanDirectory(scanPath, maxDepth, allPatterns, patternToLang, cfg.Options.DetectLanguage, langSignatures, langPriorities, langToPatterns, filters)
 		afterTotal := totalCacheBytes(afterFindings)
 		freed := bytesFreed(beforeTotal, afterTotal)
 		fmt.Printf("\nDeleted %d directories", deletedCount)
@@ -542,7 +695,7 @@ func detectLanguage(dirPath string, langSignatures map[string][]string, langPrio
 }
 
 // scanDirectory walks through the directory tree up to maxDepth and matches directory names against patterns
-func scanDirectory(root string, maxDepth int, patterns []string, patternToLang map[string]string, detectLang bool, langSignatures map[string][]string, langPriorities map[string]int, langToPatterns map[string][]string) []Finding {
+func scanDirectory(root string, maxDepth int, patterns []string, patternToLang map[string]string, detectLang bool, langSignatures map[string][]string, langPriorities map[string]int, langToPatterns map[string][]string, filters ScanFilters) []Finding {
 	var findings []Finding
 
 	// Directories that should not have language detection performed
@@ -568,6 +721,8 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 	findingsByPath := make(map[string]bool)
 	// Track excluded directories (will be reported with empty language)
 	excludedDirs := make(map[string]bool)
+	// Track whether depth-0 roots are included/excluded by path filters.
+	allowedDepth0 := make(map[string]bool)
 
 	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -607,10 +762,33 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			return filepath.SkipDir
 		}
 
-		// Determine which patterns to check for this directory
-		patternsToCheck := patterns
-		var detectedLang string
-		var projectRoot string
+			parts := strings.Split(relPath, string(filepath.Separator))
+			projectRootPath := cleanPath
+			if len(parts) > 0 && parts[0] != "." && parts[0] != "" {
+				projectRootPath = filepath.Join(root, parts[0])
+			}
+
+			// Apply include/exclude path filters at project-root granularity.
+			if depth == 0 {
+				allowed := true
+				if len(filters.IncludeOnly) > 0 {
+					allowed = matchesAnyPattern(projectRootPath, filters.IncludeOnly)
+				}
+				if allowed && len(filters.ExcludePaths) > 0 && matchesAnyPattern(projectRootPath, filters.ExcludePaths) {
+					allowed = false
+				}
+				allowedDepth0[projectRootPath] = allowed
+				if !allowed {
+					return filepath.SkipDir
+				}
+			} else if ok, seen := allowedDepth0[projectRootPath]; seen && !ok {
+				return filepath.SkipDir
+			}
+
+			// Determine which patterns to check for this directory
+			patternsToCheck := patterns
+			var detectedLang string
+			var projectRoot string
 
 		// First, check if this directory matches a cache pattern
 		// Cache directories should not be treated as project roots
@@ -646,7 +824,7 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 			} else {
 				// We're deeper in the tree - walk up to find the project root
 				// Find the project root (first directory at depth 0 from root)
-				parts := strings.Split(relPath, string(filepath.Separator))
+					parts := strings.Split(relPath, string(filepath.Separator))
 				if len(parts) > 0 {
 					projectRootAbs, err := filepath.Abs(filepath.Join(root, parts[0]))
 					if err == nil {
@@ -783,14 +961,17 @@ func scanDirectory(root string, maxDepth int, patterns []string, patternToLang m
 				} else {
 					f.Language = patternToLang[pattern]
 				}
-				// Set project root to where language was detected, or parent if no language detection
-				if detectLang && projectRoot != "" {
-					f.ProjectRoot = projectRoot
-				} else {
-					// If no language detection, use parent directory as project root
-					f.ProjectRoot = filepath.Dir(cleanPath)
-				}
-				findings = append(findings, f)
+					// Set project root to where language was detected, or parent if no language detection
+					if detectLang && projectRoot != "" {
+						f.ProjectRoot = projectRoot
+					} else {
+						// If no language detection, use parent directory as project root
+						f.ProjectRoot = filepath.Dir(cleanPath)
+					}
+					if !passesAgeFilter(f, filters) {
+						continue
+					}
+					findings = append(findings, f)
 				// Track this path in the map for O(1) lookups
 				findingsByPath[cleanPath] = true
 

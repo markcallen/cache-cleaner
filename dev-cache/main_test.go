@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCheckVersionFlag(t *testing.T) {
@@ -173,13 +174,13 @@ func TestScanDirectory(t *testing.T) {
 	}
 
 	// Test with maxDepth 1
-	findings := scanDirectory(root, 1, patterns, patternToLang, false, nil, nil, nil)
+	findings := scanDirectory(root, 1, patterns, patternToLang, false, nil, nil, nil, ScanFilters{})
 	if len(findings) != 2 {
 		t.Fatalf("expected 2 findings with maxDepth=1, got %d", len(findings))
 	}
 
 	// Test with maxDepth 2
-	findings2 := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil)
+	findings2 := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil, ScanFilters{})
 	if len(findings2) != 3 {
 		t.Fatalf("expected 3 findings with maxDepth=2, got %d", len(findings2))
 	}
@@ -265,7 +266,7 @@ func TestScanDirectoryMapLookup(t *testing.T) {
 	// 2. proj1 - "no language found" report (no signature, no cache)
 	// 3. proj2 - node language report (has signature)
 	// 4. proj2/node_modules - cache directory finding (depth 1)
-	findings := scanDirectory(root, 1, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns)
+	findings := scanDirectory(root, 1, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns, ScanFilters{})
 
 	// Count findings by type
 	var cacheFindings int
@@ -615,6 +616,92 @@ func TestHumanLarge(t *testing.T) {
 	}
 }
 
+func TestParseAgeDuration(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"30d", 30 * 24 * time.Hour, false},
+		{"2w", 14 * 24 * time.Hour, false},
+		{"48h", 48 * time.Hour, false},
+		{"90m", 90 * time.Minute, false},
+		{"", 0, false},
+		{"-1d", 0, true},
+		{"7x", 0, true},
+	}
+	for _, tt := range tests {
+		got, err := parseAgeDuration(tt.in)
+		if tt.wantErr && err == nil {
+			t.Fatalf("parseAgeDuration(%q) expected error", tt.in)
+		}
+		if !tt.wantErr {
+			if err != nil {
+				t.Fatalf("parseAgeDuration(%q) unexpected error: %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseAgeDuration(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		}
+	}
+}
+
+func TestScanDirectoryPathFilters(t *testing.T) {
+	root := t.TempDir()
+	includeProj := filepath.Join(root, "include-me")
+	excludeProj := filepath.Join(root, "exclude-me")
+	if err := os.MkdirAll(filepath.Join(includeProj, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(excludeProj, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(includeProj, "node_modules", "a.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(excludeProj, "node_modules", "b.txt"), []byte("skip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	patterns := []string{"node_modules"}
+	patternToLang := map[string]string{"node_modules": "node"}
+	filters := ScanFilters{
+		IncludeOnly: []string{includeProj},
+		ExcludePaths: []string{excludeProj},
+	}
+	findings := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil, filters)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if !strings.Contains(findings[0].Path, "include-me") {
+		t.Fatalf("unexpected finding path: %s", findings[0].Path)
+	}
+}
+
+func TestPassesAgeFilter(t *testing.T) {
+	now := time.Now()
+	base := Finding{
+		Path:      "/tmp/x",
+		Pattern:   "node_modules",
+		SizeBytes: 10,
+		ModMax:    now.Add(-48 * time.Hour),
+	}
+	filters := ScanFilters{Now: now, MinAge: 24 * time.Hour, MaxAge: 72 * time.Hour}
+	if !passesAgeFilter(base, filters) {
+		t.Fatal("expected finding to pass age filters")
+	}
+	tooNew := base
+	tooNew.ModMax = now.Add(-2 * time.Hour)
+	if passesAgeFilter(tooNew, filters) {
+		t.Fatal("expected too-new finding to fail min-age filter")
+	}
+	tooOld := base
+	tooOld.ModMax = now.Add(-10 * 24 * time.Hour)
+	if passesAgeFilter(tooOld, filters) {
+		t.Fatal("expected too-old finding to fail max-age filter")
+	}
+}
+
 func TestScanDirectoryWithExcludedDir(t *testing.T) {
 	// Test that .git directories are excluded from language detection
 	root := t.TempDir()
@@ -638,7 +725,7 @@ func TestScanDirectoryWithExcludedDir(t *testing.T) {
 	langPriorities := map[string]int{"node": 10}
 	langToPatterns := map[string][]string{"node": {"node_modules"}}
 
-	findings := scanDirectory(root, 2, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns)
+	findings := scanDirectory(root, 2, patterns, patternToLang, true, langSignatures, langPriorities, langToPatterns, ScanFilters{})
 	if len(findings) < 1 {
 		t.Fatalf("expected at least 1 finding, got %d", len(findings))
 	}
@@ -698,7 +785,7 @@ func TestScanDirectoryWalkError(t *testing.T) {
 
 	patterns := []string{"node_modules"}
 	patternToLang := map[string]string{"node_modules": "node"}
-	findings := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil)
+	findings := scanDirectory(root, 2, patterns, patternToLang, false, nil, nil, nil, ScanFilters{})
 	// Should not panic; may or may not find things depending on walk behavior
 	_ = findings
 }

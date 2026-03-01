@@ -79,6 +79,10 @@ This creates a config file at `~/.config/dev-cache/config.yaml`.
 | `--scan PATH` | Directory to scan (overrides config default) |
 | `--depth N` | Max scan depth (overrides config default, 0 = use config) |
 | `--languages LIST` | Comma-separated list of languages to scan (e.g., `node,python,go`) |
+| `--exclude LIST` | Comma-separated paths/patterns to exclude |
+| `--include-only LIST` | Comma-separated paths/patterns to include only |
+| `--min-age DURATION` | Only include caches older than duration (e.g., `30d`, `48h`) |
+| `--max-age DURATION` | Only include caches newer than duration (e.g., `7d`, `24h`) |
 | `--clean` | Delete found cache directories |
 | `--yes` | Skip confirmation prompt for cleanup |
 | `--json` | Output results as JSON |
@@ -92,6 +96,10 @@ version: 1
 options:
   defaultScanPath: ~/src
   maxDepth: 1  # How many levels deep to scan
+  excludePaths: []
+  includeOnly: []
+  minAge: ""
+  maxAge: ""
 
 languages:
   - name: node
