@@ -15,6 +15,8 @@ A cross-platform Go CLI tool that scans directories for `.git` directories, repo
 - **Size reporting**: Shows disk usage for each repository's `.git` directory
 - **Optimization**: Runs `git gc` to optimize repositories and shows disk savings
 - **Table output**: Clean, formatted table showing repository paths and sizes
+- **JSON output**: Machine-readable output for scripts and CI
+- **Config support**: Optional YAML config with default scan path (`--init`, `--config`)
 
 ## Installation
 
@@ -59,8 +61,14 @@ make build-darwin  # macOS builds only
 
 | Flag | Description |
 |------|-------------|
-| `--scan PATH` | Directory to scan for .git directories (required) |
+| `--scan PATH` | Directory to scan for .git directories (overrides config) |
 | `--clean` | Run `git gc` in each repository and show disk savings |
+| `--yes` | Skip cleanup confirmation prompt |
+| `--json` | Output structured JSON (no table/prose on stdout) |
+| `--show-pct` | Add `.git` size as % of total repo size |
+| `--config PATH` | Config path (default: `~/.config/git-cleaner/config.yaml`) |
+| `--init` | Write starter config and exit |
+| `--force` | Overwrite existing config when used with `--init` |
 
 ## Examples
 
@@ -74,6 +82,20 @@ make build-darwin  # macOS builds only
 
 ```bash
 ./build/git-cleaner --scan ~/projects --clean
+```
+
+### Initialize config and scan with defaults
+
+```bash
+./build/git-cleaner --init
+./build/git-cleaner
+```
+
+### JSON output for automation
+
+```bash
+./build/git-cleaner --scan ~/projects --json
+./build/git-cleaner --scan ~/projects --clean --yes --json
 ```
 
 This will:

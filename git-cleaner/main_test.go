@@ -283,7 +283,7 @@ func TestRunGitGC(t *testing.T) {
 		t.Skip("git commit failed:", err)
 	}
 
-	if err := runGitGC(dir); err != nil {
+	if err := runGitGC(dir, true); err != nil {
 		t.Fatalf("runGitGC failed: %v", err)
 	}
 }
@@ -298,7 +298,7 @@ func TestDisplayResults(t *testing.T) {
 		{Path: "/repo1/.git", RepoPath: "/repo1", SizeBytes: 1024, Items: 10},
 		{Path: "/repo2/.git", RepoPath: "/repo2", SizeBytes: 2048, Items: 5},
 	}
-	displayResults(findings, 3072)
+	displayResults(findings, 3072, false)
 
 	_ = w.Close()
 	var buf bytes.Buffer
@@ -318,7 +318,7 @@ func TestDisplayResultsEmpty(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = old }()
 
-	displayResults([]Finding{}, 0)
+	displayResults([]Finding{}, 0, false)
 	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
@@ -404,5 +404,58 @@ func TestExpandScanPath(t *testing.T) {
 	}
 	if got != abs {
 		t.Fatalf("expandScanPath($TEST_SCAN_DIR) = %q, want %q", got, abs)
+	}
+}
+
+func TestResolveScanPath(t *testing.T) {
+	dir := t.TempDir()
+
+	got, err := resolveScanPath(dir, nil)
+	if err != nil {
+		t.Fatalf("resolveScanPath from flag failed: %v", err)
+	}
+	if got == "" {
+		t.Fatal("expected non-empty scan path")
+	}
+
+	cfg := &Config{
+		Version: 1,
+		Options: Options{DefaultScanPath: dir},
+	}
+	got, err = resolveScanPath("", cfg)
+	if err != nil {
+		t.Fatalf("resolveScanPath from config failed: %v", err)
+	}
+	if got == "" {
+		t.Fatal("expected non-empty scan path from config")
+	}
+
+	_, err = resolveScanPath("", nil)
+	if err == nil {
+		t.Fatal("expected error when no scan path is provided")
+	}
+}
+
+func TestWriteStarterConfigAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	if err := writeStarterConfig(cfgPath, false); err != nil {
+		t.Fatalf("writeStarterConfig failed: %v", err)
+	}
+
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg.Version != 1 {
+		t.Fatalf("expected version 1, got %d", cfg.Version)
+	}
+	if cfg.Options.DefaultScanPath == "" {
+		t.Fatal("expected defaultScanPath in starter config")
+	}
+
+	if err := writeStarterConfig(cfgPath, false); err == nil {
+		t.Fatal("expected error when writing config without --force")
 	}
 }
