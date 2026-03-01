@@ -65,6 +65,18 @@ var (
 	flagDetails     = flag.Bool("details", false, "Show detailed per-directory information")
 )
 
+func init() {
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Usage: mac-cache-cleaner [flags]\n\nFlags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(out, "\nExamples:\n")
+		fmt.Fprintf(out, "  mac-cache-cleaner                         # Scan all targets (dry-run)\n")
+		fmt.Fprintf(out, "  mac-cache-cleaner --clean                 # Run cleanup commands\n")
+		fmt.Fprintf(out, "  mac-cache-cleaner --targets docker,npm    # Specific targets only\n")
+	}
+}
+
 // ----- Config types -----
 
 type Config struct {

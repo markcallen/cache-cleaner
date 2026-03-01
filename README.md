@@ -121,6 +121,7 @@ Each app has detailed documentation in its own directory:
 - [`mac-cache-cleaner/README.md`](mac-cache-cleaner/README.md) - Full mac-cache-cleaner docs
 - [`dev-cache/README.md`](dev-cache/README.md) - Full dev-cache docs
 - [`git-cleaner/README.md`](git-cleaner/README.md) - Full git-cleaner docs
+- [`docs/scheduling.md`](docs/scheduling.md) - cron and launchd scheduling examples
 
 ## Development
 

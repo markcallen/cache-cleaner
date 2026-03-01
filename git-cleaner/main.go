@@ -27,6 +27,17 @@ var (
 	flagClean = flag.Bool("clean", false, "Run git gc in each repository and show disk savings")
 )
 
+func init() {
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Usage: git-cleaner --scan <directory> [flags]\n\nFlags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(out, "\nExamples:\n")
+		fmt.Fprintf(out, "  git-cleaner --scan ~/src         # Scan for .git directories\n")
+		fmt.Fprintf(out, "  git-cleaner --scan ~/src --clean # Optimize with git gc\n")
+	}
+}
+
 // ----- Finding types -----
 
 type Finding struct {

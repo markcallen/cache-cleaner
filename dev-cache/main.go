@@ -37,6 +37,19 @@ var (
 	flagLangs  = flag.String("languages", "", "Comma-separated list of languages to scan")
 )
 
+func init() {
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Usage: dev-cache [flags]\n\nFlags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(out, "\nExamples:\n")
+		fmt.Fprintf(out, "  dev-cache                        # Scan default path from config\n")
+		fmt.Fprintf(out, "  dev-cache --scan ~/projects      # Scan specific directory\n")
+		fmt.Fprintf(out, "  dev-cache --clean --yes          # Clean without confirmation\n")
+		fmt.Fprintf(out, "  dev-cache --languages node,rust  # Only node and rust caches\n")
+	}
+}
+
 // ----- Config types -----
 
 type Config struct {
