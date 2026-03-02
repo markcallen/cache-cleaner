@@ -55,12 +55,12 @@ Add this to your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
 #### install.sh behavior
 
-- The script installs from the latest GitHub release archives.
+- The script downloads the latest GitHub release binaries from `releases/download` assets.
 - `-b <dir>` is mandatory and determines where binaries are written.
 - Supported OS values are `darwin` and `linux`.
 - Use `-a <app>` to install a single binary (`dev-cache`, `git-cleaner`, or `mac-cache-cleaner`).
 - On Linux, default install includes `dev-cache` and `git-cleaner`; `mac-cache-cleaner` is macOS-only.
-- The script exits early with an error (without partial installs) if required flags or tools are missing.
+- The script exits early with an error if required flags or tools are missing; when installing multiple apps, a failure part-way through may leave earlier apps installed.
 
 ## Quick Start
 
