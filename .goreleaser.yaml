@@ -20,6 +20,7 @@ builds:
       - CGO_ENABLED=0
     goos:
       - darwin
+      - linux
     goarch:
       - amd64
       - arm64
@@ -38,6 +39,7 @@ builds:
       - CGO_ENABLED=0
     goos:
       - darwin
+      - linux
     goarch:
       - amd64
       - arm64
@@ -68,7 +70,7 @@ builds:
 archives:
   # Combined tarball for Homebrew
   - id: cache-cleaner
-    name_template: "cache-cleaner-{{ .Version }}-darwin-{{ .Arch }}"
+    name_template: "cache-cleaner-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - none*  # Only include binaries, no extra files
 

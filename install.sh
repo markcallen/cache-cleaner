@@ -6,7 +6,8 @@ REPO_OWNER="markcallen"
 REPO_NAME="cache-cleaner"
 
 # Available apps
-APPS="dev-cache git-cleaner mac-cache-cleaner"
+ALL_APPS="dev-cache git-cleaner mac-cache-cleaner"
+APPS="$ALL_APPS"
 
 usage() {
   cat <<EOF
@@ -22,13 +23,13 @@ Usage:
 Options:
   -b <bin_dir>   Install destination directory (REQUIRED)
   -a <app>       Install specific app only: dev-cache, git-cleaner, or mac-cache-cleaner
-                 (default: install all 3 apps)
+                 (default: all available apps for this OS)
 
 Arguments:
   <version>      Version tag to install (e.g., v1.2.3). Default: latest release
 
 Examples:
-  # Install all 3 apps (latest) to ~/.local/bin
+  # Install all available apps (latest) to ~/.local/bin
   curl -sSfL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/HEAD/install.sh | sh -s -- -b \$HOME/.local/bin
 
   # Install only mac-cache-cleaner
@@ -59,18 +60,31 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Determine OS/ARCH
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS" in
+  darwin)
+    APPS="$ALL_APPS"
+    ;;
+  linux)
+    APPS="dev-cache git-cleaner"
+    ;;
+  *)
+    error "unsupported OS: $OS (supported: darwin, linux)"
+    ;;
+esac
+
 # Validate app filter if provided
 if [ -n "$APP_FILTER" ]; then
   case "$APP_FILTER" in
     dev-cache|git-cleaner|mac-cache-cleaner) : ;;
     *) error "invalid app: $APP_FILTER (must be one of: dev-cache, git-cleaner, mac-cache-cleaner)" ;;
   esac
+  if [ "$OS" = "linux" ] && [ "$APP_FILTER" = "mac-cache-cleaner" ]; then
+    error "mac-cache-cleaner is only available on macOS"
+  fi
   APPS="$APP_FILTER"
 fi
-
-# Determine OS/ARCH
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-[ "$OS" = "darwin" ] || error "only macOS (darwin) is supported"
 
 UNAME_M="$(uname -m)"
 case "$UNAME_M" in
@@ -133,43 +147,42 @@ case "$VERSION" in
   *) error "version must be a semver tag like v1.2.3" ;;
 esac
 
+# Require tools
+command -v curl >/dev/null 2>&1 || error "curl is required"
+command -v tar >/dev/null 2>&1 || error "tar is required"
+
 # Cleanup function for temp files
 cleanup() {
-  if [ -n "${TMPFILE:-}" ] && [ -f "$TMPFILE" ]; then
-    rm -f "$TMPFILE"
+  if [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ]; then
+    rm -rf "$TMPDIR"
   fi
 }
 trap cleanup EXIT INT HUP TERM
 
-# Install each app
+VERSION_NO_V="$(printf "%s" "$VERSION" | sed 's/^v//')"
+ARCHIVE_NAME="cache-cleaner-${VERSION_NO_V}-${OS}-${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+
+TMPDIR="$(mktemp -d -t cache-cleaner.XXXXXX)"
+ARCHIVE_PATH="${TMPDIR}/${ARCHIVE_NAME}"
+STAGE_DIR="${TMPDIR}/stage"
+mkdir -p "$STAGE_DIR"
+
+printf "Downloading %s for %s/%s\n" "$ARCHIVE_NAME" "$OS" "$ARCH"
+curl -fL "${DOWNLOAD_URL}" -o "$ARCHIVE_PATH" || error "download failed: ${DOWNLOAD_URL}"
+
+tar -xzf "$ARCHIVE_PATH" -C "$STAGE_DIR" || error "failed to extract ${ARCHIVE_NAME}"
+
+mkdir -p "$BIN_DIR"
 for APP_NAME in $APPS; do
-  ASSET_NAME="${APP_NAME}-darwin-${ARCH}"
-  DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VERSION}/${ASSET_NAME}"
-
-  TMPFILE="$(mktemp -t ${APP_NAME}.XXXXXX)"
-
+  SRC="${STAGE_DIR}/${APP_NAME}"
+  DEST="${BIN_DIR}/${APP_NAME}"
+  [ -f "$SRC" ] || error "release archive missing binary: ${APP_NAME}"
+  chmod 0755 "$SRC"
   printf "Installing %s %s for %s/%s to %s\n" "$APP_NAME" "$VERSION" "$OS" "$ARCH" "$BIN_DIR"
-
-  curl -fL "${DOWNLOAD_URL}" -o "$TMPFILE" || error "download failed: ${DOWNLOAD_URL}"
-
-  chmod 0755 "$TMPFILE"
-  mkdir -p "$BIN_DIR"
-  DEST="$BIN_DIR/${APP_NAME}"
-
-  if mv "$TMPFILE" "$DEST" 2>/dev/null; then
-    # Successfully moved, clear TMPFILE so cleanup doesn't try to remove it
-    TMPFILE=""
-  else
-    # Try install to handle cross-filesystem permissions
-    if install -m 0755 "$TMPFILE" "$DEST" 2>/dev/null; then
-      # Successfully installed, remove temp file since install copies it
-      rm -f "$TMPFILE"
-      TMPFILE=""
-    else
-      error "failed to install to $DEST (try with sudo or set -b)"
-    fi
+  if ! install -m 0755 "$SRC" "$DEST" 2>/dev/null; then
+    error "failed to install to $DEST (try with sudo or set -b)"
   fi
-
   printf "Installed: %s\n" "$DEST"
   "$DEST" --version >/dev/null 2>&1 || true
 done
